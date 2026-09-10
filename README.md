@@ -19,8 +19,27 @@ Coordinate existing platforms instead of replacing them.
 - Architecture Baseline: **Frozen**
 - Gate 2 Integration Reality Audit: **CLOSED / GREEN**
 - Technical Contracts & Data Specification: **v1.1 / Authoritative**
-- Gate 3 Production Implementation Specification: **Next**
-- Production Build: **Not started**
+- Gate 3 Production Implementation Specification: **CLOSED / GREEN (v1.0)**
+- Production Build: **Ready to begin (Phases 0–16)**
+
+## Project Documentation Directory
+
+The finalized authoritative project knowledge and specifications are maintained in [`docs/`](docs/):
+
+### Architecture & Blueprints
+- [Architecture Baseline](docs/architecture/PERSONAL_AI_STUDY_OS_baseline.md) — The frozen architectural baseline establishing system principles, data planes, and ownership boundaries.
+- [Engineering Implementation Blueprint](docs/architecture/engineering_blueprint.md) — Comprehensive 155-section technical architecture, data flows, and engineering standards.
+
+### Integration Audits & Research
+- [Integration Reality Audit v1.0](docs/audits/Integration_Reality_Audit_v1.0.md) — Empirical platform audit validating Cloudflare (D1, Workers, Queues), Google (Tasks, Calendar), Notion, MCP, and AI client constraints (**Verdict: GREEN**).
+
+### Technical Contracts (Authoritative)
+- [Technical Contracts Directory & Versioning](docs/contracts/README.md) — Version registry and change history.
+- **[Technical Contracts & Data Specification v1.1.0](docs/contracts/Technical_Contracts_Data_Specification_v1.1.md)** — **Current Authoritative Technical Contract** reconciling Gate 2 audit findings.
+- [Technical Contracts v1.0.0 (Archived)](docs/contracts/archive/Technical_Contracts_Data_Specification_v1.0.md) — Superseded pre-audit specification preserved for historical audit reference.
+
+### Production Specifications
+- [Production Implementation Specification v1.0](docs/specifications/Production_Implementation_Specification_v1.0.md) — Implementation-ready engineering design for the Cloudflare Worker, D1 schema, Queues, MCP server, and 16-phase build sequence (**Build Readiness: GREEN**).
 
 ## Repository Policy
 
