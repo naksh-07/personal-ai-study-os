@@ -24,7 +24,9 @@ export type IdPrefix =
   | 'snap'
   | 'chk'
   | 'sync'
-  | 'idemp';
+  | 'idemp'
+  | 'req'
+  | 'corr';
 
 const CROCKFORD_CHARS = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 

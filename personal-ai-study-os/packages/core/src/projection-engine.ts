@@ -1,5 +1,5 @@
 import { Kysely } from 'kysely';
-import { Database, D1Database, executeD1Batch, ProjectionsRepository, Compilable } from '@personal-os/db';
+import { Database, D1Database, executeD1Batch, ProjectionsRepository, EntitiesRepository, Compilable } from '@personal-os/db';
 import {
   CanonicalEvent,
   StudyProgress,
@@ -28,6 +28,19 @@ export class ProjectionEngine {
     }
   }
 
+  private static async resolveSubjectId(
+    db: Kysely<Database>,
+    chapterId: string,
+    existingSubjectId?: string,
+    payloadSubjectId?: string
+  ): Promise<string | undefined> {
+    if (payloadSubjectId && payloadSubjectId !== 'subj_default') return payloadSubjectId;
+    if (existingSubjectId && existingSubjectId !== 'subj_default') return existingSubjectId;
+    const chapter = await EntitiesRepository.getChapter(db, chapterId);
+    if (chapter) return chapter.subjectId;
+    return undefined;
+  }
+
   /**
    * Evaluates a canonical event and produces the corresponding projection upsert queries
    * for study_progress and daily_states.
@@ -54,27 +67,33 @@ export class ProjectionEngine {
           db,
           payload.chapterId
         );
-        const resolvedSubjectId =
-          payload.subjectId ?? existingProgress?.subjectId ?? 'subj_default';
+        const resolvedSubjectId = await this.resolveSubjectId(
+          db,
+          payload.chapterId,
+          existingProgress?.subjectId,
+          payload.subjectId
+        );
 
-        const updatedProgress: StudyProgress = {
-          id: existingProgress?.id ?? generateId('prog'),
-          subjectId: resolvedSubjectId,
-          chapterId: payload.chapterId,
-          status:
-            existingProgress?.status === 'NOT_STARTED'
-              ? 'IN_PROGRESS'
-              : (existingProgress?.status ?? 'IN_PROGRESS'),
-          progressPercent: existingProgress?.progressPercent ?? 0.0,
-          confidence: existingProgress?.confidence ?? 0.0,
-          lastStudiedAt: event.occurredAt,
-          lastCompletedAt: existingProgress?.lastCompletedAt,
-          questionsAttempted: existingProgress?.questionsAttempted ?? 0,
-          questionsCorrect: existingProgress?.questionsCorrect ?? 0,
-          accuracy: existingProgress?.accuracy ?? 0.0,
-          updatedAt: event.recordedAt,
-        };
-        queries.push(ProjectionsRepository.createUpsertStudyProgressQuery(db, updatedProgress));
+        if (resolvedSubjectId) {
+          const updatedProgress: StudyProgress = {
+            id: existingProgress?.id ?? generateId('prog'),
+            subjectId: resolvedSubjectId,
+            chapterId: payload.chapterId,
+            status:
+              existingProgress?.status === 'NOT_STARTED'
+                ? 'IN_PROGRESS'
+                : (existingProgress?.status ?? 'IN_PROGRESS'),
+            progressPercent: existingProgress?.progressPercent ?? 0.0,
+            confidence: existingProgress?.confidence ?? 0.0,
+            lastStudiedAt: event.occurredAt,
+            lastCompletedAt: existingProgress?.lastCompletedAt,
+            questionsAttempted: existingProgress?.questionsAttempted ?? 0,
+            questionsCorrect: existingProgress?.questionsCorrect ?? 0,
+            accuracy: existingProgress?.accuracy ?? 0.0,
+            updatedAt: event.recordedAt,
+          };
+          queries.push(ProjectionsRepository.createUpsertStudyProgressQuery(db, updatedProgress));
+        }
 
         // 2. Update daily_states
         const existingDaily = await ProjectionsRepository.getDailyStateByDate(db, eventDate);
@@ -159,30 +178,38 @@ export class ProjectionEngine {
           db,
           payload.chapterId
         );
+        const resolvedSubjectId = await this.resolveSubjectId(
+          db,
+          payload.chapterId,
+          existingProgress?.subjectId,
+          payload.subjectId
+        );
         const newChapterAttempted =
           (existingProgress?.questionsAttempted ?? 0) + payload.questionsAttempted;
         const newChapterCorrect =
           (existingProgress?.questionsCorrect ?? 0) + payload.questionsCorrect;
         const newChapterAccuracy = deriveAccuracy(newChapterCorrect, newChapterAttempted);
 
-        const updatedProgress: StudyProgress = {
-          id: existingProgress?.id ?? generateId('prog'),
-          subjectId: payload.subjectId ?? existingProgress?.subjectId ?? 'subj_default',
-          chapterId: payload.chapterId,
-          status:
-            existingProgress?.status === 'NOT_STARTED'
-              ? 'IN_PROGRESS'
-              : (existingProgress?.status ?? 'IN_PROGRESS'),
-          progressPercent: existingProgress?.progressPercent ?? 0.0,
-          confidence: existingProgress?.confidence ?? 0.0,
-          lastStudiedAt: event.occurredAt,
-          lastCompletedAt: existingProgress?.lastCompletedAt,
-          questionsAttempted: newChapterAttempted,
-          questionsCorrect: newChapterCorrect,
-          accuracy: newChapterAccuracy,
-          updatedAt: event.recordedAt,
-        };
-        queries.push(ProjectionsRepository.createUpsertStudyProgressQuery(db, updatedProgress));
+        if (resolvedSubjectId) {
+          const updatedProgress: StudyProgress = {
+            id: existingProgress?.id ?? generateId('prog'),
+            subjectId: resolvedSubjectId,
+            chapterId: payload.chapterId,
+            status:
+              existingProgress?.status === 'NOT_STARTED'
+                ? 'IN_PROGRESS'
+                : (existingProgress?.status ?? 'IN_PROGRESS'),
+            progressPercent: existingProgress?.progressPercent ?? 0.0,
+            confidence: existingProgress?.confidence ?? 0.0,
+            lastStudiedAt: event.occurredAt,
+            lastCompletedAt: existingProgress?.lastCompletedAt,
+            questionsAttempted: newChapterAttempted,
+            questionsCorrect: newChapterCorrect,
+            accuracy: newChapterAccuracy,
+            updatedAt: event.recordedAt,
+          };
+          queries.push(ProjectionsRepository.createUpsertStudyProgressQuery(db, updatedProgress));
+        }
 
         // 2. Update daily_states
         const existingDaily = await ProjectionsRepository.getDailyStateByDate(db, eventDate);
@@ -214,11 +241,18 @@ export class ProjectionEngine {
         const payload = event.payload as {
           chapterId: string;
           progress: number;
+          subjectId?: string;
         };
 
         const existingProgress = await ProjectionsRepository.getStudyProgressByChapter(
           db,
           payload.chapterId
+        );
+        const resolvedSubjectId = await this.resolveSubjectId(
+          db,
+          payload.chapterId,
+          existingProgress?.subjectId,
+          payload.subjectId
         );
         const isCompleted = payload.progress >= 1.0;
         const updatedStatus = isCompleted
@@ -227,23 +261,25 @@ export class ProjectionEngine {
           ? 'IN_PROGRESS'
           : (existingProgress?.status ?? 'IN_PROGRESS');
 
-        const updatedProgress: StudyProgress = {
-          id: existingProgress?.id ?? generateId('prog'),
-          subjectId: existingProgress?.subjectId ?? 'subj_default',
-          chapterId: payload.chapterId,
-          status: updatedStatus,
-          progressPercent: payload.progress,
-          confidence: existingProgress?.confidence ?? 0.0,
-          lastStudiedAt: event.occurredAt,
-          lastCompletedAt: isCompleted
-            ? (existingProgress?.lastCompletedAt ?? event.occurredAt)
-            : existingProgress?.lastCompletedAt,
-          questionsAttempted: existingProgress?.questionsAttempted ?? 0,
-          questionsCorrect: existingProgress?.questionsCorrect ?? 0,
-          accuracy: existingProgress?.accuracy ?? 0.0,
-          updatedAt: event.recordedAt,
-        };
-        queries.push(ProjectionsRepository.createUpsertStudyProgressQuery(db, updatedProgress));
+        if (resolvedSubjectId) {
+          const updatedProgress: StudyProgress = {
+            id: existingProgress?.id ?? generateId('prog'),
+            subjectId: resolvedSubjectId,
+            chapterId: payload.chapterId,
+            status: updatedStatus,
+            progressPercent: payload.progress,
+            confidence: existingProgress?.confidence ?? 0.0,
+            lastStudiedAt: event.occurredAt,
+            lastCompletedAt: isCompleted
+              ? (existingProgress?.lastCompletedAt ?? event.occurredAt)
+              : existingProgress?.lastCompletedAt,
+            questionsAttempted: existingProgress?.questionsAttempted ?? 0,
+            questionsCorrect: existingProgress?.questionsCorrect ?? 0,
+            accuracy: existingProgress?.accuracy ?? 0.0,
+            updatedAt: event.recordedAt,
+          };
+          queries.push(ProjectionsRepository.createUpsertStudyProgressQuery(db, updatedProgress));
+        }
         break;
       }
 
@@ -257,21 +293,29 @@ export class ProjectionEngine {
           db,
           payload.chapterId
         );
-        const updatedProgress: StudyProgress = {
-          id: existingProgress?.id ?? generateId('prog'),
-          subjectId: payload.subjectId ?? existingProgress?.subjectId ?? 'subj_default',
-          chapterId: payload.chapterId,
-          status: 'COMPLETED',
-          progressPercent: 1.0,
-          confidence: existingProgress?.confidence ?? 1.0,
-          lastStudiedAt: event.occurredAt,
-          lastCompletedAt: event.occurredAt,
-          questionsAttempted: existingProgress?.questionsAttempted ?? 0,
-          questionsCorrect: existingProgress?.questionsCorrect ?? 0,
-          accuracy: existingProgress?.accuracy ?? 0.0,
-          updatedAt: event.recordedAt,
-        };
-        queries.push(ProjectionsRepository.createUpsertStudyProgressQuery(db, updatedProgress));
+        const resolvedSubjectId = await this.resolveSubjectId(
+          db,
+          payload.chapterId,
+          existingProgress?.subjectId,
+          payload.subjectId
+        );
+        if (resolvedSubjectId) {
+          const updatedProgress: StudyProgress = {
+            id: existingProgress?.id ?? generateId('prog'),
+            subjectId: resolvedSubjectId,
+            chapterId: payload.chapterId,
+            status: 'COMPLETED',
+            progressPercent: 1.0,
+            confidence: existingProgress?.confidence ?? 1.0,
+            lastStudiedAt: event.occurredAt,
+            lastCompletedAt: event.occurredAt,
+            questionsAttempted: existingProgress?.questionsAttempted ?? 0,
+            questionsCorrect: existingProgress?.questionsCorrect ?? 0,
+            accuracy: existingProgress?.accuracy ?? 0.0,
+            updatedAt: event.recordedAt,
+          };
+          queries.push(ProjectionsRepository.createUpsertStudyProgressQuery(db, updatedProgress));
+        }
 
         const existingDaily = await ProjectionsRepository.getDailyStateByDate(db, eventDate);
         const updatedDaily: DailyState = {
@@ -362,6 +406,13 @@ export class ProjectionEngine {
     const progressMap = new Map<string, StudyProgress>();
     const dailyMap = new Map<string, DailyState>();
 
+    // Pre-load all chapters to resolve subject_id if missing from canonical events
+    const allChapters = await db.selectFrom('chapters').select(['id', 'subject_id']).execute();
+    const chapterSubjectMap = new Map<string, string>();
+    for (const c of allChapters) {
+      chapterSubjectMap.set(c.id, c.subject_id);
+    }
+
     // 2. In-memory deterministic reduction
     for (const raw of events) {
       const event: CanonicalEvent = {
@@ -407,10 +458,11 @@ export class ProjectionEngine {
           };
           const minutes = Math.floor(payload.durationSeconds / 60);
 
-          if (!progressMap.has(payload.chapterId)) {
+          const resolvedSubId = payload.subjectId ?? chapterSubjectMap.get(payload.chapterId);
+          if (!progressMap.has(payload.chapterId) && resolvedSubId) {
             progressMap.set(payload.chapterId, {
               id: generateId('prog'),
-              subjectId: payload.subjectId ?? 'subj_default',
+              subjectId: resolvedSubId,
               chapterId: payload.chapterId,
               status: 'IN_PROGRESS',
               progressPercent: 0.0,
@@ -422,7 +474,7 @@ export class ProjectionEngine {
               accuracy: 0.0,
               updatedAt: event.recordedAt,
             });
-          } else {
+          } else if (progressMap.has(payload.chapterId)) {
             const prog = progressMap.get(payload.chapterId)!;
             prog.lastStudiedAt = event.occurredAt;
             if (prog.status === 'NOT_STARTED') prog.status = 'IN_PROGRESS';
@@ -477,11 +529,12 @@ export class ProjectionEngine {
             questionsCorrect: number;
           };
 
-          if (!progressMap.has(payload.chapterId)) {
+          const resolvedSubId = payload.subjectId ?? chapterSubjectMap.get(payload.chapterId);
+          if (!progressMap.has(payload.chapterId) && resolvedSubId) {
             const acc = deriveAccuracy(payload.questionsCorrect, payload.questionsAttempted);
             progressMap.set(payload.chapterId, {
               id: generateId('prog'),
-              subjectId: payload.subjectId ?? 'subj_default',
+              subjectId: resolvedSubId,
               chapterId: payload.chapterId,
               status: 'IN_PROGRESS',
               progressPercent: 0.0,
@@ -493,7 +546,7 @@ export class ProjectionEngine {
               accuracy: acc,
               updatedAt: event.recordedAt,
             });
-          } else {
+          } else if (progressMap.has(payload.chapterId)) {
             const prog = progressMap.get(payload.chapterId)!;
             prog.questionsAttempted += payload.questionsAttempted;
             prog.questionsCorrect += payload.questionsCorrect;
@@ -514,13 +567,15 @@ export class ProjectionEngine {
           const payload = event.payload as {
             chapterId: string;
             progress: number;
+            subjectId?: string;
           };
           const isComp = payload.progress >= 1.0;
+          const resolvedSubId = payload.subjectId ?? chapterSubjectMap.get(payload.chapterId);
 
-          if (!progressMap.has(payload.chapterId)) {
+          if (!progressMap.has(payload.chapterId) && resolvedSubId) {
             progressMap.set(payload.chapterId, {
               id: generateId('prog'),
-              subjectId: 'subj_default',
+              subjectId: resolvedSubId,
               chapterId: payload.chapterId,
               status: isComp ? 'COMPLETED' : payload.progress > 0 ? 'IN_PROGRESS' : 'NOT_STARTED',
               progressPercent: payload.progress,
@@ -532,7 +587,7 @@ export class ProjectionEngine {
               accuracy: 0.0,
               updatedAt: event.recordedAt,
             });
-          } else {
+          } else if (progressMap.has(payload.chapterId)) {
             const prog = progressMap.get(payload.chapterId)!;
             prog.progressPercent = payload.progress;
             if (isComp) {
@@ -549,11 +604,12 @@ export class ProjectionEngine {
             chapterId: string;
             subjectId?: string;
           };
+          const resolvedSubId = payload.subjectId ?? chapterSubjectMap.get(payload.chapterId);
 
-          if (!progressMap.has(payload.chapterId)) {
+          if (!progressMap.has(payload.chapterId) && resolvedSubId) {
             progressMap.set(payload.chapterId, {
               id: generateId('prog'),
-              subjectId: payload.subjectId ?? 'subj_default',
+              subjectId: resolvedSubId,
               chapterId: payload.chapterId,
               status: 'COMPLETED',
               progressPercent: 1.0,
@@ -565,7 +621,7 @@ export class ProjectionEngine {
               accuracy: 0.0,
               updatedAt: event.recordedAt,
             });
-          } else {
+          } else if (progressMap.has(payload.chapterId)) {
             const prog = progressMap.get(payload.chapterId)!;
             prog.status = 'COMPLETED';
             prog.progressPercent = 1.0;

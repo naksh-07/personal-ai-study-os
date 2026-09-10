@@ -411,3 +411,352 @@ export const IdempotencyRecordSchema = z.object({
   expiresAt: z.string().datetime(),
 });
 export type IdempotencyRecord = z.infer<typeof IdempotencyRecordSchema>;
+
+// ============================================================================
+// 9. SEMANTIC STATE SERVICE CONTRACTS & DTOs
+// ============================================================================
+
+export interface TodayState {
+  date: string;
+  timezone: string;
+  studyProgress: {
+    studyMinutes: number;
+    completedChapters: number;
+    questionsAttempted: number;
+    questionsCorrect: number;
+    accuracy: number;
+    missedSessions: number;
+  };
+  completedActivity: {
+    eventsCount: number;
+    recentSessions: Array<{
+      sessionId?: string;
+      chapterId: string;
+      durationMinutes: number;
+      activityType: string;
+    }>;
+  };
+  pendingWork: {
+    pendingTasksCount: number;
+    failedSyncJobsCount: number;
+  };
+  taskLinkageState: {
+    activeTaskLinksCount: number;
+    completedTaskLinksCount: number;
+  };
+  scheduleContext: {
+    scheduledBlocksCount: number;
+    missedBlocksCount: number;
+  };
+  warnings: string[];
+  synchronizationStatus: {
+    healthy: boolean;
+    pendingSyncJobsCount: number;
+    deadLetterCount: number;
+  };
+}
+
+export interface StudyState {
+  totalStudyMinutes: number;
+  completedChaptersCount: number;
+  activeChaptersCount: number;
+  totalChaptersCount: number;
+  questionsAttempted: number;
+  questionsCorrect: number;
+  accuracy: number;
+  subjectSummaries: Array<{
+    subjectId: string;
+    name: string;
+    completedChapters: number;
+    totalChapters: number;
+    progressPercent: number;
+  }>;
+  recentActivity: Array<{
+    eventId: string;
+    eventType: string;
+    occurredAt: string;
+    summary: string;
+  }>;
+}
+
+export interface ChapterHierarchyItem {
+  id: string;
+  name: string;
+  slug: string;
+  parentId?: string | null;
+  status: ChapterStatus;
+  progress: number;
+  children?: ChapterHierarchyItem[];
+}
+
+export interface SubjectState {
+  subject: Subject;
+  chapters: ChapterHierarchyItem[];
+  progress: {
+    completedChapters: number;
+    totalChapters: number;
+    overallProgressPercent: number;
+    questionsAttempted: number;
+    questionsCorrect: number;
+    accuracy: number;
+  };
+  recentActivity: Array<{
+    eventId: string;
+    eventType: string;
+    occurredAt: string;
+  }>;
+  completionState: {
+    isFullyCompleted: boolean;
+    remainingChaptersCount: number;
+  };
+}
+
+export interface ChapterState {
+  chapter: Chapter;
+  subject: Subject;
+  parentChapter: Chapter | null;
+  completionState: {
+    status: ChapterStatus;
+    isCompleted: boolean;
+    completedAt?: string;
+  };
+  progress: {
+    progressPercent: number;
+    confidence: number;
+    questionsAttempted: number;
+    questionsCorrect: number;
+    accuracy: number;
+    studyTimeMinutes: number;
+    lastStudiedAt?: string;
+  };
+  recentEvents: Array<{
+    eventId: string;
+    eventType: string;
+    occurredAt: string;
+  }>;
+  lastActivity?: {
+    occurredAt: string;
+    eventType: string;
+  };
+  linkedSourceMappings: Array<{
+    sourceMappingId: string;
+    sourceTitle: string;
+    sourceChapterTitle: string;
+    mappingType: string;
+    relevance: string;
+    confidence: number;
+  }>;
+}
+
+export interface PendingWorkItem {
+  id: string;
+  category: 'study' | 'external_task' | 'sync';
+  title: string;
+  status: string;
+  entityType?: string;
+  entityId?: string;
+  priority?: string;
+  due?: string;
+  lastError?: string;
+  attemptCount?: number;
+}
+
+export interface PendingWorkState {
+  totalPendingCount: number;
+  studyWork: PendingWorkItem[];
+  externalTasks: PendingWorkItem[];
+  syncWork: PendingWorkItem[];
+}
+
+export interface ScheduleContextBlock {
+  id: string;
+  calendarEventId: string;
+  entityType: CalendarLinkEntityType;
+  entityId: string;
+  titleSnapshot?: string | null;
+  startsAt: string;
+  endsAt: string;
+  statusSnapshot?: CalendarLinkStatusSnapshot;
+}
+
+export interface ScheduleContextState {
+  date: string;
+  timezone: string;
+  calendarBlocks: ScheduleContextBlock[];
+  currentOrNextBlock: ScheduleContextBlock | null;
+  conflicts: Array<{
+    blockA: ScheduleContextBlock;
+    blockB: ScheduleContextBlock;
+  }>;
+  missedSessions: Array<{
+    calendarEventId: string;
+    scheduledStart: string;
+    scheduledEnd: string;
+    reason?: string;
+  }>;
+  linkedStudyActivity: Array<{
+    sessionId: string;
+    chapterId: string;
+    startsAt: string;
+    endsAt: string;
+  }>;
+}
+
+export interface MemorySearchItem {
+  id: string;
+  type: 'fact' | 'decision' | 'research' | 'project';
+  title: string;
+  content: string;
+  category?: string;
+  createdAt: string;
+  validAt?: string;
+  invalidAt?: string | null;
+  provenance?: Record<string, unknown>;
+  versionsCount?: number;
+}
+
+export interface MemorySearchState {
+  query?: string;
+  totalFound: number;
+  items: MemorySearchItem[];
+}
+
+export interface ProjectState {
+  project: Project;
+  recentEvents: ProjectEvent[];
+  decisions: Decision[];
+  research: ResearchEvent[];
+  taskLinks: TaskLink[];
+  syncStatus: {
+    pendingSyncJobsCount: number;
+  };
+  latestProgress: {
+    milestonesCount: number;
+    completedMilestonesCount: number;
+  };
+}
+
+export interface SyncStatusState {
+  healthy: boolean;
+  pendingJobsCount: number;
+  processingJobsCount: number;
+  failedJobsCount: number;
+  deadLetterJobsCount: number;
+  recentSuccessfulSync: Array<{
+    jobId: string;
+    targetSystem: TargetSystem;
+    entityType: SyncEntityType;
+    entityId: string;
+    operation: SyncOperation;
+    completedAt?: string;
+  }>;
+  activeJobs: Array<{
+    jobId: string;
+    targetSystem: TargetSystem;
+    entityType: SyncEntityType;
+    entityId: string;
+    status: SyncJobStatus;
+    attemptCount: number;
+    nextAttemptAt?: string;
+  }>;
+  systemBreakdown: {
+    notion: { total: number; failed: number };
+    google_tasks: { total: number; failed: number };
+    google_calendar: { total: number; failed: number };
+  };
+}
+
+// Mutation Input Schemas & Types
+export const RecordStudySessionInputSchema = z.object({
+  subjectId: z.string().startsWith('subj_'),
+  chapterId: z.string().startsWith('chap_'),
+  startedAt: z.string().datetime(),
+  endedAt: z.string().datetime(),
+  durationSeconds: z.number().int().min(0),
+  activityType: StudyActivityTypeSchema.default('deep_work'),
+  source: z.string().default('rest_api'),
+  questionsAttempted: z.number().int().min(0).default(0),
+  questionsCorrect: z.number().int().min(0).default(0),
+  notes: z.string().optional(),
+  correlationId: z.string().optional(),
+  causationId: z.string().optional(),
+}).refine(data => new Date(data.endedAt).getTime() >= new Date(data.startedAt).getTime(), {
+  message: 'endedAt must be greater than or equal to startedAt',
+  path: ['endedAt'],
+}).refine(data => data.questionsCorrect <= data.questionsAttempted, {
+  message: 'questionsCorrect cannot exceed questionsAttempted',
+  path: ['questionsCorrect'],
+});
+export type RecordStudySessionInput = z.input<typeof RecordStudySessionInputSchema>;
+
+export const UpdateProgressInputSchema = z.object({
+  chapterId: z.string().startsWith('chap_'),
+  progress: z.number().min(0.0).max(1.0),
+  confidence: z.number().min(0.0).max(1.0).optional(),
+  correlationId: z.string().optional(),
+  causationId: z.string().optional(),
+});
+export type UpdateProgressInput = z.input<typeof UpdateProgressInputSchema>;
+
+export const CompleteChapterInputSchema = z.object({
+  chapterId: z.string().startsWith('chap_'),
+  subjectId: z.string().startsWith('subj_').optional(),
+  correlationId: z.string().optional(),
+  causationId: z.string().optional(),
+});
+export type CompleteChapterInput = z.input<typeof CompleteChapterInputSchema>;
+
+export const RecordResearchInputSchema = z.object({
+  topic: z.string().min(1),
+  source: z.string().min(1),
+  summary: z.string().min(1),
+  takeaways: z.array(z.string()).optional(),
+  projectId: z.string().startsWith('proj_').optional(),
+  chapterId: z.string().startsWith('chap_').optional(),
+  payloadJson: z.string().optional(),
+  correlationId: z.string().optional(),
+  causationId: z.string().optional(),
+});
+export type RecordResearchInput = z.input<typeof RecordResearchInputSchema>;
+
+export const RecordDecisionInputSchema = z.object({
+  title: z.string().min(1),
+  context: z.string().min(1),
+  decision: z.string().min(1),
+  consequences: z.string().optional(),
+  projectId: z.string().startsWith('proj_').optional(),
+  correlationId: z.string().optional(),
+  causationId: z.string().optional(),
+});
+export type RecordDecisionInput = z.input<typeof RecordDecisionInputSchema>;
+
+export const LinkTaskInputSchema = z.object({
+  provider: z.string().default('google_tasks'),
+  tasklistId: z.string().min(1),
+  taskId: z.string().min(1),
+  entityType: TaskLinkEntityTypeSchema,
+  entityId: z.string().min(1),
+  titleSnapshot: z.string().optional(),
+  statusSnapshot: TaskLinkStatusSnapshotSchema.default('needsAction'),
+  correlationId: z.string().optional(),
+  causationId: z.string().optional(),
+});
+export type LinkTaskInput = z.input<typeof LinkTaskInputSchema>;
+
+export const LinkCalendarEventInputSchema = z.object({
+  provider: z.string().default('google_calendar'),
+  calendarId: z.string().min(1),
+  eventId: z.string().min(1),
+  entityType: CalendarLinkEntityTypeSchema,
+  entityId: z.string().min(1),
+  titleSnapshot: z.string().optional(),
+  startsAt: z.string().datetime(),
+  endsAt: z.string().datetime(),
+  statusSnapshot: CalendarLinkStatusSnapshotSchema.default('confirmed'),
+  correlationId: z.string().optional(),
+  causationId: z.string().optional(),
+}).refine(data => new Date(data.endsAt).getTime() >= new Date(data.startsAt).getTime(), {
+  message: 'endsAt must be greater than or equal to startsAt',
+  path: ['endsAt'],
+});
+export type LinkCalendarEventInput = z.input<typeof LinkCalendarEventInputSchema>;

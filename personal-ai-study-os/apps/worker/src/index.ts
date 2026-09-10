@@ -1,14 +1,22 @@
 import { Hono } from 'hono';
-import { createKyselyD1, D1Database } from '@personal-os/db';
+import { createKyselyD1 } from '@personal-os/db';
+import { requestContextMiddleware } from './middleware/request-context';
+import { errorHandler } from './middleware/error-handler';
+import { stateRoutes } from './routes/state.routes';
+import { eventsRoutes } from './routes/events.routes';
+import { mutationsRoutes } from './routes/mutations.routes';
+import { adminRoutes } from './routes/admin.routes';
+import { AppContext, Env } from './types';
 
-export interface Env {
-  DB: D1Database;
-  SYNC_QUEUE: unknown;
-  ENVIRONMENT: string;
-}
+export type { Env, AppContext };
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<AppContext>();
 
+// Global Middlewares
+app.use('*', requestContextMiddleware);
+app.onError(errorHandler);
+
+// Root & Health
 app.get('/health', (c) => {
   return c.json({
     status: 'healthy',
@@ -32,6 +40,34 @@ app.get('/v1/status', async (c) => {
     operatorConfigured: !!user,
     eventsRecorded: Number(eventCount?.count ?? 0),
   });
+});
+
+// Mount /v1 Routes
+app.route('/v1', stateRoutes);
+app.route('/v1', eventsRoutes);
+app.route('/v1', mutationsRoutes);
+app.route('/v1', adminRoutes);
+
+// 404 Handler
+app.notFound((c) => {
+  const requestId = c.get('requestId') || 'req_unknown';
+  const correlationId = c.get('correlationId') || 'corr_unknown';
+  return c.json(
+    {
+      error: {
+        code: 'NOT_FOUND',
+        category: 'not_found',
+        message: `Endpoint '${c.req.method} ${c.req.path}' not found`,
+        details: null,
+      },
+      meta: {
+        requestId,
+        correlationId,
+        timestamp: new Date().toISOString(),
+      },
+    },
+    404
+  );
 });
 
 export default app;

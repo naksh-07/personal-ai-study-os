@@ -8,6 +8,7 @@ import {
   MAX_EXECUTION_ATTEMPTS,
   IDEMPOTENCY_TTL_SECONDS,
   DomainError,
+  SyncStatusState,
 } from '@personal-os/domain';
 import { EntitiesRepository } from './entities.repository';
 
@@ -536,5 +537,88 @@ export class ReliabilityRepository {
       })
       .where('idempotency_key', '=', params.idempotencyKey)
       .execute();
+  }
+
+  /**
+   * Aggregates machine-readable synchronization status without exposing secrets.
+   */
+  static async getSyncStatusSummary(db: Kysely<Database>): Promise<SyncStatusState> {
+    const rows = await db.selectFrom('sync_jobs').selectAll().execute();
+
+    let pendingCount = 0;
+    let processingCount = 0;
+    let failedCount = 0;
+    let deadLetterCount = 0;
+
+    const breakdown: SyncStatusState['systemBreakdown'] = {
+      notion: { total: 0, failed: 0 },
+      google_tasks: { total: 0, failed: 0 },
+      google_calendar: { total: 0, failed: 0 },
+    };
+
+    const completedJobs: SyncJob[] = [];
+    const activeJobs: SyncJob[] = [];
+
+    for (const raw of rows) {
+      const job = mapSyncJobRow(raw);
+      if (job.status === 'PENDING' || job.status === 'DISPATCHED') {
+        pendingCount++;
+        activeJobs.push(job);
+      } else if (job.status === 'PROCESSING') {
+        processingCount++;
+        activeJobs.push(job);
+      } else if (job.status === 'FAILED') {
+        failedCount++;
+        activeJobs.push(job);
+      } else if (job.status === 'DEAD_LETTER') {
+        deadLetterCount++;
+      } else if (job.status === 'COMPLETED') {
+        completedJobs.push(job);
+      }
+
+      const target = job.targetSystem;
+      if (target in breakdown) {
+        breakdown[target].total++;
+        if (job.status === 'FAILED' || job.status === 'DEAD_LETTER') {
+          breakdown[target].failed++;
+        }
+      }
+    }
+
+    // Sort completed by completedAt descending
+    completedJobs.sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''));
+    const recentCompleted = completedJobs.slice(0, 10).map(j => ({
+      jobId: j.jobId,
+      targetSystem: j.targetSystem,
+      entityType: j.entityType,
+      entityId: j.entityId,
+      operation: j.operation,
+      completedAt: j.completedAt ?? undefined,
+    }));
+
+    // Sort active by createdAt descending
+    activeJobs.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
+    const activeJobSummaries = activeJobs.slice(0, 20).map(j => ({
+      jobId: j.jobId,
+      targetSystem: j.targetSystem,
+      entityType: j.entityType,
+      entityId: j.entityId,
+      status: j.status,
+      attemptCount: j.attemptCount,
+      nextAttemptAt: j.nextAttemptAt ?? undefined,
+    }));
+
+    const healthy = failedCount === 0 && deadLetterCount === 0;
+
+    return {
+      healthy,
+      pendingJobsCount: pendingCount,
+      processingJobsCount: processingCount,
+      failedJobsCount: failedCount,
+      deadLetterJobsCount: deadLetterCount,
+      recentSuccessfulSync: recentCompleted,
+      activeJobs: activeJobSummaries,
+      systemBreakdown: breakdown,
+    };
   }
 }
