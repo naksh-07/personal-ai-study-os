@@ -319,6 +319,8 @@ CREATE TABLE sync_jobs (
     next_attempt_at TEXT,                          -- ISO 8601 UTC after which retry is permitted
     dispatched_at TEXT,                            -- ISO 8601 UTC timestamp when enqueued to Queue
     processing_started_at TEXT,                    -- ISO 8601 UTC timestamp when processing lease was claimed
+    lease_owner TEXT,                              -- Worker / consumer identifier holding active lease
+    lease_expires_at TEXT,                         -- ISO 8601 UTC timestamp when processing lease expires
     last_error TEXT,                               -- Last caught exception or HTTP status snippet
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -328,6 +330,7 @@ CREATE INDEX idx_sync_jobs_status ON sync_jobs(status, next_attempt_at);
 CREATE INDEX idx_sync_jobs_idempotency ON sync_jobs(idempotency_key);
 CREATE INDEX idx_sync_jobs_outbox ON sync_jobs(status, dispatched_at);
 CREATE INDEX idx_sync_jobs_stale_processing ON sync_jobs(status, processing_started_at);
+CREATE INDEX idx_sync_jobs_lease_expires ON sync_jobs(status, lease_expires_at);
 
 CREATE TABLE idempotency_records (
     idempotency_key TEXT PRIMARY KEY,              -- Client-provided UUID or internal mutation key

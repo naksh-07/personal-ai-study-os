@@ -11,7 +11,14 @@ export type ErrorCode =
   | 'INVALID_OPAQUE_ID'
   | 'CORRECTION_TARGET_NOT_FOUND'
   | 'PROJECTION_REBUILD_FAILED'
-  | 'BATCH_EXECUTION_FAILED';
+  | 'BATCH_EXECUTION_FAILED'
+  | 'INVALID_STATE_TRANSITION'
+  | 'LEASE_ACQUISITION_FAILED'
+  | 'STALE_LEASE_RECOVERY_FAILED'
+  | 'CAS_OWNERSHIP_MISMATCH'
+  | 'ATTEMPT_CEILING_EXCEEDED'
+  | 'RECONCILIATION_FAILED'
+  | 'RELIABILITY_FAILURE';
 
 export class DomainError extends Error {
   public readonly code: ErrorCode;
@@ -44,5 +51,29 @@ export class MathematicalConstraintError extends DomainError {
   constructor(message: string, details?: unknown) {
     super('MATHEMATICAL_CONSTRAINT_VIOLATION', message, details);
     this.name = 'MathematicalConstraintError';
+  }
+}
+
+export class StateTransitionError extends DomainError {
+  constructor(message: string, details?: unknown) {
+    super('INVALID_STATE_TRANSITION', message, details);
+    this.name = 'StateTransitionError';
+    Object.setPrototypeOf(this, StateTransitionError.prototype);
+  }
+}
+
+export class LeaseOwnershipError extends DomainError {
+  constructor(message: string, details?: unknown) {
+    super('CAS_OWNERSHIP_MISMATCH', message, details);
+    this.name = 'LeaseOwnershipError';
+    Object.setPrototypeOf(this, LeaseOwnershipError.prototype);
+  }
+}
+
+export class AttemptCeilingError extends DomainError {
+  constructor(message: string, details?: unknown) {
+    super('ATTEMPT_CEILING_EXCEEDED', message, details);
+    this.name = 'AttemptCeilingError';
+    Object.setPrototypeOf(this, AttemptCeilingError.prototype);
   }
 }

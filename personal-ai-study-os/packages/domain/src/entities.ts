@@ -385,6 +385,8 @@ export const SyncJobSchema = z.object({
   nextAttemptAt: z.string().datetime().nullable().optional(),
   dispatchedAt: z.string().datetime().nullable().optional(),
   processingStartedAt: z.string().datetime().nullable().optional(),
+  leaseOwner: z.string().nullable().optional(),
+  leaseExpiresAt: z.string().datetime().nullable().optional(),
   lastError: z.string().nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),

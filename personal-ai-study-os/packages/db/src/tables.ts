@@ -275,6 +275,8 @@ export interface SyncJobsTable {
   next_attempt_at: string | null;
   dispatched_at: string | null;
   processing_started_at: string | null;
+  lease_owner: string | null;
+  lease_expires_at: string | null;
   last_error: string | null;
   created_at: string;
   updated_at: string;

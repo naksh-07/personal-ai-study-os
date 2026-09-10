@@ -78,9 +78,14 @@ class D1Connection implements DatabaseConnection {
       .bind(...(compiledQuery.parameters as unknown[]));
 
     const result = await stmt.all<R>();
+    const changes =
+      (result.meta as any)?.changes !== undefined
+        ? BigInt((result.meta as any).changes)
+        : undefined;
 
     return {
       rows: result.results || [],
+      numAffectedRows: changes,
     };
   }
 
