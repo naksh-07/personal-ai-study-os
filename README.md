@@ -1,58 +1,45 @@
-# Personal AI Study OS
+# Personal AI Study OS — Documentation Index & Architecture Register
 
-A personal, multi-agent study coordination system that connects Google, Gemini Spark, Notion, Cloudflare D1, ChatGPT, and Antigravity through a shared state architecture.
+**System Version:** 1.2  
+**Current Phase:** Final Pre-Build Gate Correction  
+**Authoritative Implementation Specification:** [`Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.md`](./Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.md)  
+**Production Build Status:** **NOT YET AUTHORIZED** (Pending Final Build Authorization Review)
 
-## North Star
+---
 
-Coordinate existing platforms instead of replacing them.
+## 1. Authoritative Precedence Hierarchy
 
-- **Google Tasks** → WHAT needs to be done
-- **Google Calendar** → WHEN it happens
-- **Gemini Spark** → scheduling and schedule adjustment
-- **Notion** → human-readable memory and knowledge
-- **Cloudflare D1** → machine-readable state and event history
-- **ChatGPT** → reasoning, planning, research, and intent generation
-- **Antigravity** → technical execution and source ingestion
+In accordance with system governance, all implementation planning, code authoring, and operational procedures must strictly adhere to the following precedence order:
 
-## Architecture Status
+1. **[`Personal_AI_Study_OS_Technical_Contracts_Data_Specification_v1.1.md`](./Personal_AI_Study_OS_Technical_Contracts_Data_Specification_v1.1.md)**  
+   *Domain boundaries, event definitions, ownership matrix, and non-negotiable architectural contracts. Authoritative and unchanged.*
+2. **[`Integration_Reality_Audit_v1.0.md`](./Integration_Reality_Audit_v1.0.md)**  
+   *Verified platform capabilities, operational limits, and constraints for Cloudflare, Google APIs, Notion, and MCP as of September 2026.*
+3. **[`Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.md`](./Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.md)**  
+   *The active, authoritative production implementation specification resolving all Gate 3 reconciliation findings.*
+4. **[`PERSONAL AI STUDY OS.md`](./PERSONAL%20AI%20STUDY%20OS.md)**  
+   *Foundational baseline architecture and system vision.*
+5. **[`engineering blueprint.md`](./engineering%20blueprint.md)**  
+   *Initial architectural blueprint and engineering design.*
 
-- Architecture Baseline: **Frozen**
-- Gate 2 Integration Reality Audit: **CLOSED / GREEN**
-- Technical Contracts & Data Specification: **v1.1 / Authoritative**
-- Gate 3 Production Implementation Specification: **CLOSED / GREEN (v1.0)**
-- Production Build: **Ready to begin (Phases 0–16)**
+---
 
-## Project Documentation Directory
+## 2. Document Register & Version History
 
-The finalized authoritative project knowledge and specifications are maintained in [`docs/`](docs/):
+| Document | Version | Status | Role |
+| :--- | :--- | :--- | :--- |
+| `Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.md` | **v1.2** | **ACTIVE AUTHORITATIVE** | Complete production specification governing schema (24 tables), transactional outbox, provider idempotency, Streamable HTTP MCP, and CI/CD promotion. |
+| `Personal_AI_Study_OS_Production_Implementation_Specification_v1.1.md` | v1.1 | Superseded | Historical document (Gate 3 Reconciled). Preserved for auditability. |
+| `Personal_AI_Study_OS_Production_Implementation_Specification_v1.0.md` | v1.0 | Superseded | Historical initial draft. Preserved for auditability. |
+| `Personal_AI_Study_OS_Technical_Contracts_Data_Specification_v1.1.md` | v1.1 | **AUTHORITATIVE CONTRACT** | Master architectural contract. Unchanged. |
+| `Technical Contracts & Data Specification v1.0.md` | v1.0 | Superseded | Historical initial contract draft. |
+| `Integration_Reality_Audit_v1.0.md` | v1.0 | **AUTHORITATIVE AUDIT** | Master integration reality audit. |
 
-### Architecture & Blueprints
-- [Architecture Baseline](docs/architecture/PERSONAL_AI_STUDY_OS_baseline.md) — The frozen architectural baseline establishing system principles, data planes, and ownership boundaries.
-- [Engineering Implementation Blueprint](docs/architecture/engineering_blueprint.md) — Comprehensive 155-section technical architecture, data flows, and engineering standards.
+---
 
-### Integration Audits & Research
-- [Integration Reality Audit v1.0](docs/audits/Integration_Reality_Audit_v1.0.md) — Empirical platform audit validating Cloudflare (D1, Workers, Queues), Google (Tasks, Calendar), Notion, MCP, and AI client constraints (**Verdict: GREEN**).
+## 3. Strict Pre-Build Gate Rules
 
-### Technical Contracts (Authoritative)
-- [Technical Contracts Directory & Versioning](docs/contracts/README.md) — Version registry and change history.
-- **[Technical Contracts & Data Specification v1.1.0](docs/contracts/Technical_Contracts_Data_Specification_v1.1.md)** — **Current Authoritative Technical Contract** reconciling Gate 2 audit findings.
-- [Technical Contracts v1.0.0 (Archived)](docs/contracts/archive/Technical_Contracts_Data_Specification_v1.0.md) — Superseded pre-audit specification preserved for historical audit reference.
-
-### Production Specifications
-- [Production Implementation Specification v1.0](docs/specifications/Production_Implementation_Specification_v1.0.md) — Implementation-ready engineering design for the Cloudflare Worker, D1 schema, Queues, MCP server, and 16-phase build sequence (**Build Readiness: GREEN**).
-
-## Repository Policy
-
-This repository is the authoritative project source once an artifact is finalized and designated as such.
-
-Working drafts and temporary generated material may remain in Antigravity. Do not turn this repository into a dump of every generated file. Commit finalized contracts, specifications, research results, implementation artifacts, and other material only when they become authoritative project sources.
-
-## Development Principle
-
-The system uses a shared-state architecture with clear ownership boundaries, canonical immutable events, rebuildable derived state, provider adapters, idempotent external mutations, and explicit integration contracts.
-
-Architecture decisions must preserve these boundaries unless an explicit contract change is approved.
-
-## License
-
-MIT License. See [LICENSE](LICENSE).
+- **No-Code Rule:** No production application code, migrations, or deployments may be executed until formal Build Authorization is granted.
+- **Single-Tenant Deployment:** Version 1 is explicitly scoped as a single-user personal system.
+- **Immutable Ledger:** Canonical events in Cloudflare D1 are strictly append-only; derived state is 100% rebuildable.
+- **Provider Authority:** Google Tasks owns task status (WHAT); Google Calendar owns precise time allocation (WHEN); Notion owns human-readable notes; Cloudflare D1 owns machine truth.
