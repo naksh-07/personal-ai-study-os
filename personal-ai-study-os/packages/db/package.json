@@ -1,0 +1,13 @@
+{
+  "name": "@personal-os/db",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@personal-os/domain": "*",
+    "kysely": "^0.28.17"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@personal-os/domain": ["packages/domain/src"],
+      "@personal-os/domain/*": ["packages/domain/src/*"],
+      "@personal-os/db": ["packages/db/src"],
+      "@personal-os/db/*": ["packages/db/src/*"],
+      "@personal-os/core": ["packages/core/src"],
+      "@personal-os/core/*": ["packages/core/src/*"],
+      "@personal-os/worker": ["apps/worker/src"],
+      "@personal-os/worker/*": ["apps/worker/src/*"]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*",
+    "apps/*/src/**/*",
+    "tests/**/*"
+  ]
+}

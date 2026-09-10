@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "baseUrl": ".",
+    "paths": {
+      "@personal-os/domain": ["../../packages/domain/src"],
+      "@personal-os/db": ["../../packages/db/src"],
+      "@personal-os/core": ["../../packages/core/src"]
+    },
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": ["src/**/*"]
+}
