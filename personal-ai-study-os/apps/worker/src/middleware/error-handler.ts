@@ -27,13 +27,24 @@ export function errorHandler(err: Error, c: Context) {
 
   const classified = classifyError(err);
 
+  let message = classified.message;
+  let details = classified.details ?? null;
+
+  if (classified.status >= 500 || classified.category === 'internal') {
+    console.error(`[ERROR] [${requestId}] [${correlationId}]`, err);
+    if (c.env?.ENVIRONMENT !== 'test') {
+      message = 'An internal error occurred.';
+      details = null;
+    }
+  }
+
   return c.json(
     {
       error: {
         code: classified.code,
         category: classified.category,
-        message: classified.message,
-        details: classified.details ?? null,
+        message,
+        details,
       },
       meta: {
         requestId,
@@ -44,3 +55,4 @@ export function errorHandler(err: Error, c: Context) {
     classified.status as any
   );
 }
+

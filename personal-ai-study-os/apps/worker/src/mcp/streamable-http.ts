@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { AppContext, Env } from '../types';
-import { verifyJwt, AudienceMismatchError, TokenClaims } from '../middleware/auth';
+import { verifyJwt, AudienceMismatchError, TokenClaims, decodeBase64UrlJson } from '../middleware/auth';
 import { listMcpTools, executeMcpTool } from './server';
 
 export const mcpRouter = new Hono<AppContext>();
@@ -25,7 +25,22 @@ async function authenticateMcpRequest(
     ? authHeader.substring(7).trim()
     : queryToken;
 
-  if (!tokenStr && env.SKIP_AUTH === 'true') {
+  if (!tokenStr && env?.SKIP_AUTH === 'true') {
+    if (env?.ENVIRONMENT !== 'test') {
+      return {
+        success: false,
+        errorResponse: c.json(
+          {
+            error: {
+              code: 'UNAUTHORIZED',
+              category: 'authorization',
+              message: 'Unauthorized: SKIP_AUTH is only permitted in test environment',
+            },
+          },
+          401
+        ),
+      };
+    }
     return {
       success: true,
       claims: {
@@ -52,8 +67,23 @@ async function authenticateMcpRequest(
     };
   }
 
-  // Support mock tokens in tests
+  // Support mock tokens strictly in test environments (SEC-01)
   if (tokenStr.startsWith('mock-')) {
+    if (env?.ENVIRONMENT !== 'test') {
+      return {
+        success: false,
+        errorResponse: c.json(
+          {
+            error: {
+              code: 'UNAUTHORIZED',
+              category: 'authorization',
+              message: 'Unauthorized: Mock tokens are only permitted in test environment',
+            },
+          },
+          401
+        ),
+      };
+    }
     const mockScope = tokenStr.includes('admin')
       ? 'admin'
       : tokenStr.includes('write')
@@ -69,6 +99,33 @@ async function authenticateMcpRequest(
       },
     };
   }
+
+  // Support test suite mock-signature tokens strictly in test environment
+  const parts = tokenStr.split('.');
+  if (env?.ENVIRONMENT === 'test' && parts.length === 3 && parts[2] === 'mock_signature') {
+    const claims = decodeBase64UrlJson<TokenClaims>(parts[1]);
+    if (claims) {
+      const tokenAudiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+      const hasValidAudience = tokenAudiences.some((aud) => MCP_ALLOWED_AUDIENCES.includes(aud));
+      if (!hasValidAudience) {
+        return {
+          success: false,
+          errorResponse: c.json(
+            {
+              error: {
+                code: 'AUDIENCE_MISMATCH',
+                category: 'authorization',
+                message: `Forbidden: Token audience '${tokenAudiences.join(', ')}' is not authorized for Personal State Service (AUDIENCE_MISMATCH)`,
+              },
+            },
+            403
+          ),
+        };
+      }
+      return { success: true, claims };
+    }
+  }
+
 
   try {
     const claims = await verifyJwt(tokenStr, env, MCP_ALLOWED_AUDIENCES);

@@ -230,11 +230,12 @@ export function classifyError(err: unknown): ClassifiedError {
   }
 
   // Generic or unknown errors: never leak stack traces or internal secrets
-  const fallbackMessage = err instanceof Error ? err.message : 'An internal error occurred.';
   return {
     category: 'internal',
     status: 500,
     code: 'INTERNAL_ERROR',
-    message: fallbackMessage,
+    message: 'An internal error occurred.',
+    details: null,
   };
 }
+

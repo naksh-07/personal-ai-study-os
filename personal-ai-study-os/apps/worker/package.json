@@ -14,6 +14,7 @@
     "@personal-os/domain": "*",
     "@personal-os/db": "*",
     "@personal-os/core": "*",
+    "@personal-os/adapters": "*",
     "hono": "^4.13.7"
   }
 }

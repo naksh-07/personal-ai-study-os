@@ -15,15 +15,14 @@ import { wrapJobInQueueEnvelope } from '../queue/outbox-dispatcher';
 export const adminRoutes = new Hono<AppContext>();
 
 /**
- * Constant-time comparison of two hex strings to prevent timing attacks.
+ * Constant-time comparison of two hex strings using fixed 32-byte buffers to prevent timing attacks.
  */
 function constantTimeCompare(a: string, b: string): boolean {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
-  if (a.length !== b.length) return false;
   try {
     const bufA = Buffer.from(a, 'hex');
     const bufB = Buffer.from(b, 'hex');
-    if (bufA.length !== bufB.length) return false;
+    if (bufA.length !== 32 || bufB.length !== 32) return false;
     return crypto.timingSafeEqual(bufA, bufB);
   } catch {
     return false;
@@ -35,19 +34,24 @@ function constantTimeCompare(a: string, b: string): boolean {
 // ============================================================================
 adminRoutes.post('/webhooks/notion', async (c) => {
   const signature = c.req.header('x-notion-signature') || c.req.header('X-Notion-Signature');
-  const secret = c.env.NOTION_WEBHOOK_SECRET;
+  const secret = c.env?.NOTION_WEBHOOK_SECRET;
+
+  if (!secret || typeof secret !== 'string' || secret.trim() === '') {
+    throw new UnauthorizedError('Unauthorized: Notion webhook secret is unconfigured');
+  }
+
+  if (!signature) {
+    throw new UnauthorizedError('Unauthorized: Missing Notion webhook signature (X-Notion-Signature)');
+  }
+
   const rawBody = await c.req.text();
 
   // Stage 1: Constant-time HMAC-SHA256 signature check against X-Notion-Signature
-  if (secret) {
-    if (!signature) {
-      throw new UnauthorizedError('Unauthorized: Missing Notion webhook signature (X-Notion-Signature)');
-    }
-    const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
-    if (!constantTimeCompare(signature, expected)) {
-      throw new UnauthorizedError('Unauthorized: Invalid Notion webhook signature');
-    }
+  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+  if (!constantTimeCompare(signature, expected)) {
+    throw new UnauthorizedError('Unauthorized: Invalid Notion webhook signature');
   }
+
 
   let parsed: any = {};
   try {

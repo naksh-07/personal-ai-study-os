@@ -8,15 +8,18 @@ import crypto from 'node:crypto';
 describe('Slice 3: Semantic REST State API', () => {
   let ctx: TestContext;
   const envSecret = 'test_notion_secret_key';
+  const testJwtSecret = 'test_jwt_secret_rest_api_key_12345';
 
   const testSubjectId = 'subj_cardio';
   const testChapterId = 'chap_ecg';
   const testProjectId = 'proj_ai_study';
 
-  function makeJwt(payload: Record<string, any>): string {
+  function makeJwt(payload: Record<string, any>, secret: string = testJwtSecret): string {
     const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
     const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
-    return `${header}.${body}.mock_signature`;
+    const unsigned = `${header}.${body}`;
+    const signature = crypto.createHmac('sha256', secret).update(unsigned).digest('base64url');
+    return `${unsigned}.${signature}`;
   }
 
   const readToken = makeJwt({
@@ -54,11 +57,14 @@ describe('Slice 3: Semantic REST State API', () => {
     exp: Math.floor(Date.now() / 1000) - 3600,
   });
 
-  const makeEnv = () => ({
+  const makeEnv = (overrides?: Record<string, any>) => ({
     DB: ctx.d1,
     ENVIRONMENT: 'test',
+    JWT_SECRET: testJwtSecret,
     NOTION_WEBHOOK_SECRET: envSecret,
+    ...overrides,
   });
+
 
   beforeEach(async () => {
     ctx = createTestDatabase();
@@ -205,15 +211,91 @@ describe('Slice 3: Semantic REST State API', () => {
       expect(json.data.eventId).toBeDefined();
     });
 
-    it('supports mock token bypass for tests (mock-read, mock-write, mock-admin)', async () => {
+    it('supports mock token bypass strictly in test environment', async () => {
       const res = await app.request(
         '/v1/state/today',
         { headers: { Authorization: 'Bearer mock-read' } },
-        makeEnv()
+        makeEnv({ ENVIRONMENT: 'test' })
       );
       expect(res.status).toBe(200);
     });
+
+    it('rejects mock token when ENVIRONMENT is staging with 401', async () => {
+      const res = await app.request(
+        '/v1/state/today',
+        { headers: { Authorization: 'Bearer mock-read' } },
+        makeEnv({ ENVIRONMENT: 'staging' })
+      );
+      expect(res.status).toBe(401);
+      const json: any = await res.json();
+      expect(json.error.code).toBe('UNAUTHORIZED');
+      expect(json.error.message).toContain('Mock tokens are only permitted in test environment');
+    });
+
+    it('rejects request when JWT_SECRET is unconfigured with 401', async () => {
+      const res = await app.request(
+        '/v1/state/today',
+        { headers: { Authorization: `Bearer ${readToken}` } },
+        makeEnv({ JWT_SECRET: undefined })
+      );
+      expect(res.status).toBe(401);
+      const json: any = await res.json();
+      expect(json.error.message).toContain('Server authentication secret is unconfigured');
+    });
+
+    it('rejects token with forged signature with 401', async () => {
+      const forgedToken = makeJwt({
+        sub: 'usr_operator',
+        aud: 'personal-ai-study-os',
+        scope: 'read',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      }, 'wrong_attacker_secret_key');
+
+      const res = await app.request(
+        '/v1/state/today',
+        { headers: { Authorization: `Bearer ${forgedToken}` } },
+        makeEnv()
+      );
+      expect(res.status).toBe(401);
+      const json: any = await res.json();
+      expect(json.error.message).toBe('Unauthorized: Invalid JWT signature');
+    });
+
+    it('rejects token missing mandatory exp claim with 401', async () => {
+      const tokenNoExp = makeJwt({
+        sub: 'usr_operator',
+        aud: 'personal-ai-study-os',
+        scope: 'read',
+      });
+
+      const res = await app.request(
+        '/v1/state/today',
+        { headers: { Authorization: `Bearer ${tokenNoExp}` } },
+        makeEnv()
+      );
+      expect(res.status).toBe(401);
+      const json: any = await res.json();
+      expect(json.error.message).toContain('Token missing mandatory expiration (exp) claim');
+    });
+
+    it('rejects token missing mandatory sub claim with 401', async () => {
+      const tokenNoSub = makeJwt({
+        aud: 'personal-ai-study-os',
+        scope: 'read',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      });
+
+      const res = await app.request(
+        '/v1/state/today',
+        { headers: { Authorization: `Bearer ${tokenNoSub}` } },
+        makeEnv()
+      );
+      expect(res.status).toBe(401);
+      const json: any = await res.json();
+      expect(json.error.message).toContain('Token missing mandatory subject (sub) claim');
+    });
   });
+
 
   describe('3. Semantic Read Endpoints & Dual Route Aliases', () => {
     it('1. GET /v1/state/today returns today state envelope', async () => {
@@ -683,7 +765,43 @@ describe('Slice 3: Semantic REST State API', () => {
       const json: any = await res.json();
       expect(json.error.message).toContain('Invalid Notion webhook signature');
     });
+
+    it('rejects webhook when NOTION_WEBHOOK_SECRET is unconfigured with 401', async () => {
+      const res = await app.request(
+        '/v1/webhooks/notion',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Notion-Signature': 'a'.repeat(64),
+          },
+          body: JSON.stringify({ id: 'evt_no_sec' }),
+        },
+        makeEnv({ NOTION_WEBHOOK_SECRET: undefined })
+      );
+      expect(res.status).toBe(401);
+      const json: any = await res.json();
+      expect(json.error.message).toContain('Notion webhook secret is unconfigured');
+    });
+
+    it('rejects webhook when X-Notion-Signature header is missing with 401', async () => {
+      const res = await app.request(
+        '/v1/webhooks/notion',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ id: 'evt_no_sig' }),
+        },
+        makeEnv()
+      );
+      expect(res.status).toBe(401);
+      const json: any = await res.json();
+      expect(json.error.message).toContain('Missing Notion webhook signature');
+    });
   });
+
 
   describe('6. Admin Endpoints & Projection Rebuild', () => {
     it('executes projection rebuild when called with admin token', async () => {
@@ -780,5 +898,32 @@ describe('Slice 3: Semantic REST State API', () => {
       expect(text).not.toContain('at Object');
       expect(text).not.toContain(envSecret);
     });
+
+    it('masks 500 internal errors as generic message in staging environment', async () => {
+      const crashingDb = {
+        prepare: () => {
+          throw new Error('FATAL DATABASE FAILURE: raw SQL schema leak');
+        },
+      };
+
+      const res = await app.request(
+        '/v1/admin/rebuild-projections',
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${adminToken}` },
+        },
+        makeEnv({ DB: crashingDb, ENVIRONMENT: 'staging' })
+      );
+
+      expect(res.status).toBe(500);
+      const json: any = await res.json();
+      expect(json.error.code).toBe('INTERNAL_ERROR');
+      expect(json.error.category).toBe('internal');
+      expect(json.error.message).toBe('An internal error occurred.');
+      expect(json.error.details).toBeNull();
+      const rawText = JSON.stringify(json);
+      expect(rawText).not.toContain('FATAL DATABASE FAILURE');
+    });
   });
 });
+

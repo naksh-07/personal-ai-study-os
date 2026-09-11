@@ -14,8 +14,11 @@ import {
   NotionAdapter,
   verifyNotionWebhookSignature,
   TokenBucketRateLimiter,
+  GoogleTokenProvider,
+  ProviderRetryableError,
 } from '@personal-os/adapters';
 import { generateDeterministicCalendarEventId } from '@personal-os/domain';
+import { getGoogleTokenProvider } from '../apps/worker/src/queue/consumer';
 import crypto from 'crypto';
 
 describe('Slice 4: Provider Adapters Test Suite', () => {
@@ -475,4 +478,398 @@ describe('Slice 4: Provider Adapters Test Suite', () => {
       expect(result.page.id).toBe('notion_existing_page_id');
     });
   });
+
+  // ==========================================================================
+  // 4. Google OAuth Token Provider & Adapter Auth Integration
+  // ==========================================================================
+  describe('Google OAuth Token Provider', () => {
+    it('obtains token using refresh_token and caches it', async () => {
+      let callCount = 0;
+      let capturedBody = '';
+      let capturedContentType = '';
+
+      const mockFetch = vi.fn(async (url: string, init?: RequestInit) => {
+        callCount++;
+        capturedBody = init?.body as string;
+        capturedContentType = (init?.headers as any)?.['Content-Type'];
+        return new Response(
+          JSON.stringify({
+            access_token: 'access_token_abc123',
+            expires_in: 3600,
+            token_type: 'Bearer',
+          }),
+          { status: 200 }
+        );
+      });
+
+      const provider = new GoogleTokenProvider({
+        clientId: 'client_123',
+        clientSecret: 'secret_456',
+        refreshToken: 'refresh_789',
+        fetchFn: mockFetch as any,
+      });
+
+      const token = await provider.getAccessToken();
+      expect(token).toBe('access_token_abc123');
+      expect(callCount).toBe(1);
+      expect(capturedContentType).toBe('application/x-www-form-urlencoded');
+
+      const params = new URLSearchParams(capturedBody);
+      expect(params.get('client_id')).toBe('client_123');
+      expect(params.get('client_secret')).toBe('secret_456');
+      expect(params.get('refresh_token')).toBe('refresh_789');
+      expect(params.get('grant_type')).toBe('refresh_token');
+    });
+
+    it('cache hit avoids duplicate fetch calls', async () => {
+      let fetchCount = 0;
+      const mockFetch = vi.fn(async () => {
+        fetchCount++;
+        return new Response(
+          JSON.stringify({
+            access_token: 'cached_token_val',
+            expires_in: 3600,
+          }),
+          { status: 200 }
+        );
+      });
+
+      const provider = new GoogleTokenProvider({
+        clientId: 'client_123',
+        clientSecret: 'secret_456',
+        refreshToken: 'refresh_789',
+        fetchFn: mockFetch as any,
+      });
+
+      const t1 = await provider.getAccessToken();
+      const t2 = await provider.getAccessToken();
+      const t3 = await provider.getAccessToken();
+
+      expect(t1).toBe('cached_token_val');
+      expect(t2).toBe('cached_token_val');
+      expect(t3).toBe('cached_token_val');
+      expect(fetchCount).toBe(1);
+    });
+
+    it('expiry buffer (e.g. within 300s) triggers re-fetch', async () => {
+      let fetchCount = 0;
+      const mockFetch = vi.fn(async () => {
+        fetchCount++;
+        return new Response(
+          JSON.stringify({
+            access_token: `token_${fetchCount}`,
+            expires_in: 300, // Exactly equals 300s buffer -> lifetime is 0
+          }),
+          { status: 200 }
+        );
+      });
+
+      const provider = new GoogleTokenProvider({
+        clientId: 'client_123',
+        clientSecret: 'secret_456',
+        refreshToken: 'refresh_789',
+        expiryBufferSeconds: 300,
+        fetchFn: mockFetch as any,
+      });
+
+      const token1 = await provider.getAccessToken();
+      expect(token1).toBe('token_1');
+      expect(fetchCount).toBe(1);
+
+      // Since lifetime is 0 (300 - 300 = 0), cachedExpiresAtMs <= Date.now() immediately triggers re-fetch
+      const token2 = await provider.getAccessToken();
+      expect(token2).toBe('token_2');
+      expect(fetchCount).toBe(2);
+    });
+
+    it('concurrent calls share the same in-flight refresh promise', async () => {
+      let fetchCount = 0;
+      const mockFetch = vi.fn(async () => {
+        fetchCount++;
+        // Simulate async network delay
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return new Response(
+          JSON.stringify({
+            access_token: 'concurrent_token',
+            expires_in: 3600,
+          }),
+          { status: 200 }
+        );
+      });
+
+      const provider = new GoogleTokenProvider({
+        clientId: 'client_123',
+        clientSecret: 'secret_456',
+        refreshToken: 'refresh_789',
+        fetchFn: mockFetch as any,
+      });
+
+      const [r1, r2, r3, r4] = await Promise.all([
+        provider.getAccessToken(),
+        provider.getAccessToken(),
+        provider.getAccessToken(),
+        provider.getAccessToken(),
+      ]);
+
+      expect(r1).toBe('concurrent_token');
+      expect(r2).toBe('concurrent_token');
+      expect(r3).toBe('concurrent_token');
+      expect(r4).toBe('concurrent_token');
+      expect(fetchCount).toBe(1);
+    });
+
+    it('invalid_grant throws permanent error and invalidates cache', async () => {
+      let fetchCount = 0;
+      const mockFetch = vi.fn(async () => {
+        fetchCount++;
+        return new Response(
+          JSON.stringify({
+            error: 'invalid_grant',
+            error_description: 'Token has been expired or revoked.',
+          }),
+          { status: 400 }
+        );
+      });
+
+      const provider = new GoogleTokenProvider({
+        clientId: 'client_123',
+        clientSecret: 'secret_456',
+        refreshToken: 'refresh_789',
+        fetchFn: mockFetch as any,
+      });
+
+      await expect(provider.getAccessToken()).rejects.toThrow(/PERMANENT_ERROR.*invalid_grant/);
+      expect(fetchCount).toBe(1);
+
+      // Verify cache remains invalid, calling again triggers fetch rather than returning token
+      await expect(provider.getAccessToken()).rejects.toThrow(/PERMANENT_ERROR.*invalid_grant/);
+      expect(fetchCount).toBe(2);
+    });
+
+    it('invalid_client throws permanent error', async () => {
+      const mockFetch = vi.fn(async () => {
+        return new Response(
+          JSON.stringify({
+            error: 'invalid_client',
+            error_description: 'The OAuth client was not found.',
+          }),
+          { status: 401 }
+        );
+      });
+
+      const provider = new GoogleTokenProvider({
+        clientId: 'bad_client',
+        clientSecret: 'bad_secret',
+        refreshToken: 'refresh_789',
+        fetchFn: mockFetch as any,
+      });
+
+      await expect(provider.getAccessToken()).rejects.toThrow(/PERMANENT_ERROR.*invalid_client/);
+    });
+
+    it('network error throws ProviderRetryableError', async () => {
+      const mockFetch = vi.fn(async () => {
+        throw new Error('ECONNRESET: connection reset by peer');
+      });
+
+      const provider = new GoogleTokenProvider({
+        clientId: 'client_123',
+        clientSecret: 'secret_456',
+        refreshToken: 'refresh_789',
+        fetchFn: mockFetch as any,
+      });
+
+      await expect(provider.getAccessToken()).rejects.toThrow(ProviderRetryableError);
+      await expect(provider.getAccessToken()).rejects.toThrow(/Google OAuth transient error/);
+    });
+
+    it('HTTP 500 server error throws ProviderRetryableError', async () => {
+      const mockFetch = vi.fn(async () => {
+        return new Response('Internal Server Error', { status: 500 });
+      });
+
+      const provider = new GoogleTokenProvider({
+        clientId: 'client_123',
+        clientSecret: 'secret_456',
+        refreshToken: 'refresh_789',
+        fetchFn: mockFetch as any,
+      });
+
+      try {
+        await provider.getAccessToken();
+        expect.unreachable('Should have thrown');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(ProviderRetryableError);
+        expect(err.isRetryable).toBe(true);
+        expect(err.status).toBe(500);
+        expect(err.message).toContain('Google OAuth transient error');
+      }
+    });
+
+    it('HTTP 429 rate limit error throws ProviderRetryableError', async () => {
+      const mockFetch = vi.fn(async () => {
+        return new Response('Rate Limit Exceeded', { status: 429 });
+      });
+
+      const provider = new GoogleTokenProvider({
+        clientId: 'client_123',
+        clientSecret: 'secret_456',
+        refreshToken: 'refresh_789',
+        fetchFn: mockFetch as any,
+      });
+
+      try {
+        await provider.getAccessToken();
+        expect.unreachable('Should have thrown');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(ProviderRetryableError);
+        expect(err.isRetryable).toBe(true);
+        expect(err.status).toBe(429);
+      }
+    });
+
+    it('invalidation clears cache and forces re-fetch', async () => {
+      let fetchCount = 0;
+      const mockFetch = vi.fn(async () => {
+        fetchCount++;
+        return new Response(
+          JSON.stringify({
+            access_token: `token_v${fetchCount}`,
+            expires_in: 3600,
+          }),
+          { status: 200 }
+        );
+      });
+
+      const provider = new GoogleTokenProvider({
+        clientId: 'client_123',
+        clientSecret: 'secret_456',
+        refreshToken: 'refresh_789',
+        fetchFn: mockFetch as any,
+      });
+
+      const t1 = await provider.getAccessToken();
+      expect(t1).toBe('token_v1');
+      expect(fetchCount).toBe(1);
+
+      provider.invalidate();
+
+      const t2 = await provider.getAccessToken();
+      expect(t2).toBe('token_v2');
+      expect(fetchCount).toBe(2);
+    });
+
+    it('static access token without refresh token returns static token without network call', async () => {
+      const mockFetch = vi.fn();
+      const provider = new GoogleTokenProvider({
+        clientId: '',
+        clientSecret: '',
+        refreshToken: '',
+        staticAccessToken: 'static_token_xyz',
+        fetchFn: mockFetch as any,
+      });
+
+      const token = await provider.getAccessToken();
+      expect(token).toBe('static_token_xyz');
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('GoogleTasksAdapter uses tokenProvider and handles HTTP 401 with invalidation and retryable error', async () => {
+      let authHeader = '';
+      let fetchCount = 0;
+
+      const mockFetch = vi.fn(async (url: string, init?: RequestInit) => {
+        fetchCount++;
+        authHeader = (init?.headers as any)?.['Authorization'];
+        return new Response(JSON.stringify({ error: { message: 'Invalid Credentials' } }), {
+          status: 401,
+        });
+      });
+
+      const mockProvider = {
+        getAccessToken: vi.fn(async () => 'dynamic_token_123'),
+        invalidate: vi.fn(),
+      };
+
+      const adapter = new GoogleTasksAdapter({
+        tokenProvider: mockProvider,
+        fetchFn: mockFetch as any,
+      });
+
+      await expect(adapter.getTask('list_1', 'task_1')).rejects.toThrow(ProviderRetryableError);
+      await expect(adapter.getTask('list_1', 'task_1')).rejects.toThrow(
+        /Google Tasks API token expired or rejected \(HTTP 401\)/
+      );
+      expect(mockProvider.getAccessToken).toHaveBeenCalled();
+      expect(mockProvider.invalidate).toHaveBeenCalled();
+      expect(authHeader).toBe('Bearer dynamic_token_123');
+    });
+
+    it('GoogleCalendarAdapter uses tokenProvider and handles HTTP 401 with invalidation and retryable error', async () => {
+      let authHeader = '';
+
+      const mockFetch = vi.fn(async (url: string, init?: RequestInit) => {
+        authHeader = (init?.headers as any)?.['Authorization'];
+        return new Response(JSON.stringify({ error: { message: 'Invalid Credentials' } }), {
+          status: 401,
+        });
+      });
+
+      const mockProvider = {
+        getAccessToken: vi.fn(async () => 'cal_token_456'),
+        invalidate: vi.fn(),
+      };
+
+      const adapter = new GoogleCalendarAdapter({
+        tokenProvider: mockProvider,
+        fetchFn: mockFetch as any,
+      });
+
+      await expect(adapter.getEvent('primary', 'event_1')).rejects.toThrow(ProviderRetryableError);
+      await expect(adapter.getEvent('primary', 'event_1')).rejects.toThrow(
+        /Google Calendar API token expired or rejected \(HTTP 401\)/
+      );
+      expect(mockProvider.getAccessToken).toHaveBeenCalled();
+      expect(mockProvider.invalidate).toHaveBeenCalled();
+      expect(authHeader).toBe('Bearer cal_token_456');
+    });
+
+    it('getGoogleTokenProvider creates provider from refresh credentials', () => {
+      const env = {
+        DB: {} as any,
+        GOOGLE_CLIENT_ID: 'cid_1',
+        GOOGLE_CLIENT_SECRET: 'csec_1',
+        GOOGLE_REFRESH_TOKEN: 'rtoken_1',
+      };
+      const provider = getGoogleTokenProvider(env);
+      expect(provider).toBeInstanceOf(GoogleTokenProvider);
+    });
+
+    it('getGoogleTokenProvider creates provider from static access token fallback', async () => {
+      const envTasks = {
+        DB: {} as any,
+        GOOGLE_TASKS_ACCESS_TOKEN: 'static_tasks_tok',
+      };
+      const provider1 = getGoogleTokenProvider(envTasks);
+      expect(provider1).toBeInstanceOf(GoogleTokenProvider);
+      expect(await provider1?.getAccessToken()).toBe('static_tasks_tok');
+
+      const envCal = {
+        DB: {} as any,
+        GOOGLE_CALENDAR_ACCESS_TOKEN: 'static_cal_tok',
+      };
+      const provider2 = getGoogleTokenProvider(envCal);
+      expect(provider2).toBeInstanceOf(GoogleTokenProvider);
+      expect(await provider2?.getAccessToken()).toBe('static_cal_tok');
+    });
+
+    it('getGoogleTokenProvider returns undefined when no credentials present', () => {
+      const env = {
+        DB: {} as any,
+      };
+      const provider = getGoogleTokenProvider(env);
+      expect(provider).toBeUndefined();
+    });
+  });
 });
+

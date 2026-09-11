@@ -82,8 +82,28 @@ export interface UpdateTaskParams {
   status?: 'needsAction' | 'completed';
 }
 
+// ============================================================================
+// Google Auth Types
+// ============================================================================
+
+export interface GoogleTokenProviderConfig {
+  clientId?: string;
+  clientSecret?: string;
+  refreshToken?: string;
+  staticAccessToken?: string;
+  tokenEndpoint?: string;
+  fetchFn?: typeof fetch;
+  expiryBufferSeconds?: number;
+}
+
+export interface IGoogleTokenProvider {
+  getAccessToken(): Promise<string>;
+  invalidate(): void;
+}
+
 export interface GoogleTasksAdapterConfig {
   accessToken?: string;
+  tokenProvider?: IGoogleTokenProvider;
   baseUrl?: string;
   fetchFn?: typeof fetch;
 }
@@ -149,6 +169,7 @@ export interface CalendarGetResult {
 
 export interface GoogleCalendarAdapterConfig {
   accessToken?: string;
+  tokenProvider?: IGoogleTokenProvider;
   baseUrl?: string;
   fetchFn?: typeof fetch;
 }

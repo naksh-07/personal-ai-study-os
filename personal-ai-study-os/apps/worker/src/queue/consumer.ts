@@ -9,7 +9,37 @@ import {
   GoogleTasksAdapter,
   GoogleCalendarAdapter,
   NotionAdapter,
+  GoogleTokenProvider,
+  IGoogleTokenProvider,
 } from '@personal-os/adapters';
+
+/**
+ * Resolves the Google OAuth token provider from environment configuration.
+ * Favors refresh credentials, then falls back to static tokens.
+ */
+export function getGoogleTokenProvider(
+  env: Env,
+  preferredStaticToken?: string
+): IGoogleTokenProvider | undefined {
+  if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN) {
+    return new GoogleTokenProvider({
+      clientId: env.GOOGLE_CLIENT_ID,
+      clientSecret: env.GOOGLE_CLIENT_SECRET,
+      refreshToken: env.GOOGLE_REFRESH_TOKEN,
+    });
+  }
+  const staticToken =
+    preferredStaticToken || env.GOOGLE_TASKS_ACCESS_TOKEN || env.GOOGLE_CALENDAR_ACCESS_TOKEN;
+  if (staticToken) {
+    return new GoogleTokenProvider({
+      clientId: '',
+      clientSecret: '',
+      refreshToken: '',
+      staticAccessToken: staticToken,
+    });
+  }
+  return undefined;
+}
 
 /**
  * Dispatches the mutation to the external provider adapter.
@@ -30,7 +60,7 @@ export async function dispatchToProviderAdapter(
   switch (targetSystem) {
     case 'notion': {
       const adapter = new NotionAdapter({
-        apiKey: (env as any).NOTION_API_KEY,
+        apiKey: env.NOTION_API_KEY,
         webhookSecret: env.NOTION_WEBHOOK_SECRET,
       });
       if (operation === 'create' || operation === 'sync') {
@@ -51,8 +81,10 @@ export async function dispatchToProviderAdapter(
       break;
     }
     case 'google_tasks': {
+      const tokenProvider = getGoogleTokenProvider(env, env.GOOGLE_TASKS_ACCESS_TOKEN);
       const adapter = new GoogleTasksAdapter({
-        accessToken: (env as any).GOOGLE_TASKS_ACCESS_TOKEN,
+        tokenProvider,
+        accessToken: env.GOOGLE_TASKS_ACCESS_TOKEN,
       });
       const tasklistId = p.tasklistId ?? p.tasklist_id ?? '@default';
       if (operation === 'create' || operation === 'sync') {
@@ -81,8 +113,10 @@ export async function dispatchToProviderAdapter(
       break;
     }
     case 'google_calendar': {
+      const tokenProvider = getGoogleTokenProvider(env, env.GOOGLE_CALENDAR_ACCESS_TOKEN);
       const adapter = new GoogleCalendarAdapter({
-        accessToken: (env as any).GOOGLE_CALENDAR_ACCESS_TOKEN,
+        tokenProvider,
+        accessToken: env.GOOGLE_CALENDAR_ACCESS_TOKEN,
       });
       const calendarId = p.calendarId ?? p.calendar_id ?? 'primary';
       if (operation === 'create' || operation === 'sync') {

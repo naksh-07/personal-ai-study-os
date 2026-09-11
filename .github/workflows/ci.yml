@@ -1,4 +1,4 @@
-name: Personal AI Study OS CI/CD Release Gate
+﻿name: Personal AI Study OS CI/CD Release Gate
 
 on:
   pull_request:
@@ -14,6 +14,9 @@ jobs:
   pr-gate:
     name: 1. PR Verification Gate
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: personal-ai-study-os
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -23,6 +26,7 @@ jobs:
         with:
           node-version: 20
           cache: 'npm'
+          cache-dependency-path: personal-ai-study-os/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -57,24 +61,28 @@ jobs:
         with:
           node-version: 20
           cache: 'npm'
+          cache-dependency-path: personal-ai-study-os/package-lock.json
 
       - name: Install dependencies
         run: npm ci
+        working-directory: personal-ai-study-os
 
       - name: Apply Staging D1 Migrations
         run: npx wrangler d1 migrations apply DB --env staging --remote
+        working-directory: personal-ai-study-os/apps/worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy Staging Worker
         run: npx wrangler deploy --env staging
+        working-directory: personal-ai-study-os/apps/worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Staging Synthetic Verification
-        run: echo "Staging synthetic health verified"
+        run: curl -f -s https://personal-ai-study-os-staging.riyasaksena502.workers.dev/health || exit 1
 
   # ==========================================================================
   # Stage 3: Production Promotion Gate (Triggered ONLY by Release Tag)
@@ -94,18 +102,22 @@ jobs:
         with:
           node-version: 20
           cache: 'npm'
+          cache-dependency-path: personal-ai-study-os/package-lock.json
 
       - name: Install dependencies
         run: npm ci
+        working-directory: personal-ai-study-os
 
       - name: Apply Production D1 Migrations
         run: npx wrangler d1 migrations apply DB --env production --remote
+        working-directory: personal-ai-study-os/apps/worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy Production Worker
         run: npx wrangler deploy --env production
+        working-directory: personal-ai-study-os/apps/worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

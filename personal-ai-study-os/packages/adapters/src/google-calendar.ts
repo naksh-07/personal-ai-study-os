@@ -1,4 +1,4 @@
-﻿import { generateDeterministicCalendarEventId } from '@personal-os/domain';
+import { generateDeterministicCalendarEventId } from '@personal-os/domain';
 import {
   GoogleCalendarEvent,
   CreateCalendarEventParams,
@@ -6,6 +6,7 @@ import {
   CalendarGetResult,
   GoogleCalendarAdapterConfig,
   IGoogleCalendarAdapter,
+  IGoogleTokenProvider,
   AmbiguousProviderError,
   ProviderRetryableError,
 } from './types';
@@ -18,18 +19,23 @@ export class GoogleCalendarAdapter implements IGoogleCalendarAdapter {
   private readonly baseUrl: string;
   private readonly fetchFn: typeof fetch;
   private readonly accessToken?: string;
+  private readonly tokenProvider?: IGoogleTokenProvider;
 
   constructor(config: GoogleCalendarAdapterConfig = {}) {
     this.baseUrl = config.baseUrl ?? 'https://www.googleapis.com/calendar/v3';
     this.fetchFn = config.fetchFn ?? fetch.bind(globalThis);
     this.accessToken = config.accessToken;
+    this.tokenProvider = config.tokenProvider;
   }
 
-  private getHeaders(etag?: string): Record<string, string> {
+  private async getHeaders(etag?: string): Promise<Record<string, string>> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
-    if (this.accessToken) {
+    if (this.tokenProvider) {
+      const t = await this.tokenProvider.getAccessToken();
+      headers['Authorization'] = `Bearer ${t}`;
+    } else if (this.accessToken) {
       headers['Authorization'] = `Bearer ${this.accessToken}`;
     }
     if (etag) {
@@ -51,7 +57,7 @@ export class GoogleCalendarAdapter implements IGoogleCalendarAdapter {
         `${this.baseUrl}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
         {
           method: 'GET',
-          headers: this.getHeaders(),
+          headers: await this.getHeaders(),
         }
       );
     } catch (netErr: any) {
@@ -59,6 +65,11 @@ export class GoogleCalendarAdapter implements IGoogleCalendarAdapter {
         status: 503,
         error: netErr?.message ?? 'Network timeout connecting to Google Calendar',
       };
+    }
+
+    if (res.status === 401 && this.tokenProvider) {
+      this.tokenProvider.invalidate();
+      throw new ProviderRetryableError('Google Calendar API token expired or rejected (HTTP 401)');
     }
 
     if (res.status === 404) {
@@ -111,7 +122,7 @@ export class GoogleCalendarAdapter implements IGoogleCalendarAdapter {
         `${this.baseUrl}/calendars/${encodeURIComponent(params.calendarId)}/events`,
         {
           method: 'POST',
-          headers: this.getHeaders(),
+          headers: await this.getHeaders(),
           body: JSON.stringify(payload),
         }
       );
@@ -119,6 +130,11 @@ export class GoogleCalendarAdapter implements IGoogleCalendarAdapter {
       throw new AmbiguousProviderError('Network timeout during Google Calendar event creation', {
         cause: netErr,
       });
+    }
+
+    if (res.status === 401 && this.tokenProvider) {
+      this.tokenProvider.invalidate();
+      throw new ProviderRetryableError('Google Calendar API token expired or rejected (HTTP 401)');
     }
 
     // HTTP 409 Conflict: Identifier already exists -> CREATE Idempotency recovery
@@ -215,7 +231,7 @@ export class GoogleCalendarAdapter implements IGoogleCalendarAdapter {
         `${this.baseUrl}/calendars/${encodeURIComponent(params.calendarId)}/events/${encodeURIComponent(params.eventId)}`,
         {
           method: 'PATCH',
-          headers: this.getHeaders(etagToUse),
+          headers: await this.getHeaders(etagToUse),
           body: JSON.stringify(targetPayload),
         }
       );
@@ -223,6 +239,11 @@ export class GoogleCalendarAdapter implements IGoogleCalendarAdapter {
       throw new AmbiguousProviderError('Network timeout during Google Calendar event PATCH', {
         cause: netErr,
       });
+    }
+
+    if (res.status === 401 && this.tokenProvider) {
+      this.tokenProvider.invalidate();
+      throw new ProviderRetryableError('Google Calendar API token expired or rejected (HTTP 401)');
     }
 
     // Step 3: Handle HTTP 412 Precondition Failed (Concurrent Modification)
@@ -251,7 +272,7 @@ export class GoogleCalendarAdapter implements IGoogleCalendarAdapter {
           `${this.baseUrl}/calendars/${encodeURIComponent(params.calendarId)}/events/${encodeURIComponent(params.eventId)}`,
           {
             method: 'PATCH',
-            headers: this.getHeaders(latest.etag),
+            headers: await this.getHeaders(latest.etag),
             body: JSON.stringify(reconciledPayload),
           }
         );
@@ -260,6 +281,11 @@ export class GoogleCalendarAdapter implements IGoogleCalendarAdapter {
           'Network timeout during Google Calendar retry PATCH after 412 reconciliation',
           { cause: retryErr }
         );
+      }
+
+      if (retryRes.status === 401 && this.tokenProvider) {
+        this.tokenProvider.invalidate();
+        throw new ProviderRetryableError('Google Calendar API token expired or rejected (HTTP 401)');
       }
 
       if (retryRes.status === 429 || retryRes.status >= 500) {

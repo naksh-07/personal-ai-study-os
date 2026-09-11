@@ -10,6 +10,12 @@ export interface Env {
   JWT_SECRET?: string;
   AUTH_ISSUER?: string;
   JWKS_URL?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  GOOGLE_REFRESH_TOKEN?: string;
+  GOOGLE_TASKS_ACCESS_TOKEN?: string;
+  GOOGLE_CALENDAR_ACCESS_TOKEN?: string;
+  NOTION_API_KEY?: string;
 }
 
 export interface AppVariables {

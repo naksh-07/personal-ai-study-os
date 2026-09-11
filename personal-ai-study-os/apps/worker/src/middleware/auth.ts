@@ -50,7 +50,7 @@ function base64UrlToUint8Array(base64url: string): Uint8Array {
   return bytes;
 }
 
-function decodeBase64UrlJson<T = unknown>(base64url: string): T | null {
+export function decodeBase64UrlJson<T = unknown>(base64url: string): T | null {
   try {
     const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
     const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
@@ -62,6 +62,7 @@ function decodeBase64UrlJson<T = unknown>(base64url: string): T | null {
     return null;
   }
 }
+
 
 /**
  * Cryptographic JWT verification via WebCrypto (crypto.subtle)
@@ -84,48 +85,66 @@ export async function verifyJwt(
     throw new UnauthorizedError('Unauthorized: Malformed JWT token');
   }
 
-  // 1. Signature Verification via WebCrypto
-  if (parts[2] === 'invalid_signature' || parts[2] === 'invalid_signature_hex' || parts[2] === '') {
+  // 1. Validate server authentication secret (SEC-02 fail-closed)
+  if (!env?.JWT_SECRET || typeof env.JWT_SECRET !== 'string' || env.JWT_SECRET.trim() === '') {
+    throw new UnauthorizedError('Unauthorized: Server authentication secret is unconfigured');
+  }
+
+  // 2. Enforce algorithm HS256 (SEC-02)
+  if (header.alg !== 'HS256') {
+    throw new UnauthorizedError(`Unauthorized: Unsupported token algorithm '${header.alg}' (expected HS256)`);
+  }
+
+  // 3. Cryptographic Signature Verification via WebCrypto against env.JWT_SECRET (SEC-02)
+  try {
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(env.JWT_SECRET),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+
+    const dataToVerify = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
+    const signatureBytes = base64UrlToUint8Array(parts[2]);
+
+    const isValid = await crypto.subtle.verify('HMAC', key, signatureBytes, dataToVerify);
+    if (!isValid) {
+      throw new UnauthorizedError('Unauthorized: Invalid JWT signature');
+    }
+  } catch (err) {
+    if (err instanceof UnauthorizedError) throw err;
     throw new UnauthorizedError('Unauthorized: Invalid JWT signature');
   }
 
-  if (env.JWT_SECRET) {
-    try {
-      const key = await crypto.subtle.importKey(
-        'raw',
-        new TextEncoder().encode(env.JWT_SECRET),
-        { name: 'HMAC', hash: 'SHA-256' },
-        false,
-        ['verify']
-      );
-
-      const dataToVerify = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
-      const signatureBytes = base64UrlToUint8Array(parts[2]);
-
-      const isValid = await crypto.subtle.verify('HMAC', key, signatureBytes, dataToVerify);
-      if (!isValid) {
-        throw new UnauthorizedError('Unauthorized: Invalid JWT signature');
-      }
-    } catch (err) {
-      if (err instanceof UnauthorizedError) throw err;
-      throw new UnauthorizedError('Unauthorized: Cryptographic signature verification failed');
-    }
+  // 4. Mandatory Claims Validation (SEC-06)
+  // 4a. sub: must exist, be a non-empty string
+  if (!claims.sub || typeof claims.sub !== 'string' || claims.sub.trim() === '') {
+    throw new UnauthorizedError('Unauthorized: Token missing mandatory subject (sub) claim');
   }
 
-  // 2. Expiration Validation (with max 30s clock skew buffer)
+  // 4b. exp: must be a number. Enforce expiration with 30s max clock skew buffer
+  if (claims.exp === undefined || claims.exp === null || typeof claims.exp !== 'number' || Number.isNaN(claims.exp)) {
+    throw new UnauthorizedError('Unauthorized: Token missing mandatory expiration (exp) claim');
+  }
+
   const nowSeconds = Math.floor(Date.now() / 1000);
-  if (claims.exp !== undefined) {
-    if (claims.exp + 30 < nowSeconds) {
-      throw new UnauthorizedError('Unauthorized: Token has expired');
+  if (claims.exp + 30 < nowSeconds) {
+    throw new UnauthorizedError('Unauthorized: Token has expired');
+  }
+
+  // 4c. iss: If env.AUTH_ISSUER is set, require claims.iss === env.AUTH_ISSUER
+  if (env.AUTH_ISSUER && typeof env.AUTH_ISSUER === 'string' && env.AUTH_ISSUER.trim() !== '') {
+    if (!claims.iss || claims.iss !== env.AUTH_ISSUER) {
+      throw new UnauthorizedError(`Unauthorized: Invalid or missing token issuer '${claims.iss ?? 'none'}'`);
     }
   }
 
-  // 3. Issuer Validation
-  if (env.AUTH_ISSUER && claims.iss && claims.iss !== env.AUTH_ISSUER) {
-    throw new UnauthorizedError(`Unauthorized: Invalid token issuer '${claims.iss}'`);
+  // 4d. aud: If !claims.aud, throw new AudienceMismatchError
+  if (!claims.aud || (Array.isArray(claims.aud) && claims.aud.length === 0)) {
+    throw new AudienceMismatchError('Forbidden: Token missing mandatory audience (aud) claim');
   }
 
-  // 4. Audience Validation (OAuth 2.1 Audience Guard)
   const tokenAudiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
   const hasValidAudience = tokenAudiences.some((aud) => allowedAudiences.includes(aud));
   if (!hasValidAudience) {
@@ -143,10 +162,18 @@ export function requireAuth(requiredScope: 'read' | 'write' | 'admin' = 'read') 
     const authHeader = c.req.header('authorization') || c.req.header('Authorization');
     const env = c.env;
 
-    // Optional environment bypass for development/testing
-    if (!authHeader && env?.SKIP_AUTH === 'true') {
-      c.set('user', { id: 'usr_operator', scopes: ['read', 'write', 'admin'] });
-      return await next();
+    // Optional environment bypass for testing only (SEC-01)
+    if (env?.SKIP_AUTH === 'true') {
+      if (env?.ENVIRONMENT === 'test') {
+        if (!authHeader) {
+          c.set('user', { id: 'usr_operator', scopes: ['read', 'write', 'admin'] });
+          return await next();
+        }
+      } else {
+        if (!authHeader) {
+          throw new UnauthorizedError('Unauthorized: SKIP_AUTH is only permitted in test environment');
+        }
+      }
     }
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -158,8 +185,11 @@ export function requireAuth(requiredScope: 'read' | 'write' | 'admin' = 'read') 
       throw new UnauthorizedError('Unauthorized: Empty Bearer token');
     }
 
-    // Support mock tokens in test environments
+    // Support mock tokens strictly in test environments (SEC-01)
     if (token.startsWith('mock-')) {
+      if (env?.ENVIRONMENT !== 'test') {
+        throw new UnauthorizedError('Unauthorized: Mock tokens are only permitted in test environment');
+      }
       const mockScope = token.includes('admin') ? 'admin' : token.includes('write') ? 'write' : 'read';
       if (requiredScope === 'admin' && mockScope !== 'admin') {
         throw new ForbiddenError(`Forbidden: Requires '${requiredScope}' scope`);

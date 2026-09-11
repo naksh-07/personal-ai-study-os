@@ -1,6 +1,6 @@
 name = "personal-ai-study-os-worker"
 main = "src/index.ts"
-compatibility_date = "2024-04-19"
+compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
@@ -39,7 +39,7 @@ name = "personal-ai-study-os-staging"
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "personal_study_os_db_staging"
-database_id = "00000000-0000-0000-0000-000000000001"
+database_id = "7c388205-171f-44e4-ab1c-f0b2670cded7"
 migrations_dir = "migrations"
 
 [[env.staging.queues.producers]]
@@ -62,6 +62,7 @@ crons = ["* * * * *", "0 */6 * * *"]
 
 [env.staging.vars]
 ENVIRONMENT = "staging"
+AUTH_ISSUER = "personal-study-os-api"
 
 # ============================================================================
 # Production Environment (Explicit release gate promotion only)

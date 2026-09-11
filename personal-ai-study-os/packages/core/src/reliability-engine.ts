@@ -1,5 +1,5 @@
 import { Kysely } from 'kysely';
-import crypto from 'crypto';
+import crypto from 'node:crypto';
 import {
   Database,
   ReliabilityRepository,

@@ -1,4 +1,4 @@
-﻿import {
+import {
   GoogleTask,
   GoogleTasksListResponse,
   TaskSearchReconciliationResult,
@@ -6,6 +6,7 @@
   UpdateTaskParams,
   GoogleTasksAdapterConfig,
   IGoogleTasksAdapter,
+  IGoogleTokenProvider,
   AmbiguousProviderError,
   ProviderRetryableError,
 } from './types';
@@ -173,18 +174,23 @@ export class GoogleTasksAdapter implements IGoogleTasksAdapter {
   private readonly baseUrl: string;
   private readonly fetchFn: typeof fetch;
   private readonly accessToken?: string;
+  private readonly tokenProvider?: IGoogleTokenProvider;
 
   constructor(config: GoogleTasksAdapterConfig = {}) {
     this.baseUrl = config.baseUrl ?? 'https://tasks.googleapis.com';
     this.fetchFn = config.fetchFn ?? fetch.bind(globalThis);
     this.accessToken = config.accessToken;
+    this.tokenProvider = config.tokenProvider;
   }
 
-  private getHeaders(): Record<string, string> {
+  private async getHeaders(): Promise<Record<string, string>> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
-    if (this.accessToken) {
+    if (this.tokenProvider) {
+      const t = await this.tokenProvider.getAccessToken();
+      headers['Authorization'] = `Bearer ${t}`;
+    } else if (this.accessToken) {
       headers['Authorization'] = `Bearer ${this.accessToken}`;
     }
     return headers;
@@ -227,7 +233,7 @@ export class GoogleTasksAdapter implements IGoogleTasksAdapter {
           `${this.baseUrl}/tasks/v1/lists/${encodeURIComponent(tasklistId)}/tasks?${params.toString()}`,
           {
             method: 'GET',
-            headers: this.getHeaders(),
+            headers: await this.getHeaders(),
           }
         );
       } catch (networkError) {
@@ -239,6 +245,11 @@ export class GoogleTasksAdapter implements IGoogleTasksAdapter {
           pagesScanned,
           tasksScanned,
         };
+      }
+
+      if (res.status === 401 && this.tokenProvider) {
+        this.tokenProvider.invalidate();
+        throw new ProviderRetryableError('Google Tasks API token expired or rejected (HTTP 401)');
       }
 
       // A6: Ambiguous Provider State on 429, 5xx
@@ -313,11 +324,16 @@ export class GoogleTasksAdapter implements IGoogleTasksAdapter {
         `${this.baseUrl}/tasks/v1/lists/${encodeURIComponent(tasklistId)}/tasks/${encodeURIComponent(taskId)}`,
         {
           method: 'GET',
-          headers: this.getHeaders(),
+          headers: await this.getHeaders(),
         }
       );
     } catch (err) {
       throw new AmbiguousProviderError(`Network timeout fetching task ${taskId}`, { cause: err });
+    }
+
+    if (res.status === 401 && this.tokenProvider) {
+      this.tokenProvider.invalidate();
+      throw new ProviderRetryableError('Google Tasks API token expired or rejected (HTTP 401)');
     }
 
     if (res.status === 404) {
@@ -391,7 +407,7 @@ export class GoogleTasksAdapter implements IGoogleTasksAdapter {
         `${this.baseUrl}/tasks/v1/lists/${encodeURIComponent(params.tasklistId)}/tasks`,
         {
           method: 'POST',
-          headers: this.getHeaders(),
+          headers: await this.getHeaders(),
           body: JSON.stringify(taskPayload),
         }
       );
@@ -399,6 +415,11 @@ export class GoogleTasksAdapter implements IGoogleTasksAdapter {
       throw new AmbiguousProviderError(`Google Tasks POST timed out or network error`, {
         cause: netErr,
       });
+    }
+
+    if (res.status === 401 && this.tokenProvider) {
+      this.tokenProvider.invalidate();
+      throw new ProviderRetryableError('Google Tasks API token expired or rejected (HTTP 401)');
     }
 
     if (res.status === 429 || res.status >= 500) {
@@ -468,7 +489,7 @@ export class GoogleTasksAdapter implements IGoogleTasksAdapter {
         `${this.baseUrl}/tasks/v1/lists/${encodeURIComponent(params.tasklistId)}/tasks/${encodeURIComponent(params.taskId)}`,
         {
           method: 'PATCH',
-          headers: this.getHeaders(),
+          headers: await this.getHeaders(),
           body: JSON.stringify(patchPayload),
         }
       );
@@ -476,6 +497,11 @@ export class GoogleTasksAdapter implements IGoogleTasksAdapter {
       throw new AmbiguousProviderError(`Google Tasks PATCH failed with network error`, {
         cause: netErr,
       });
+    }
+
+    if (res.status === 401 && this.tokenProvider) {
+      this.tokenProvider.invalidate();
+      throw new ProviderRetryableError('Google Tasks API token expired or rejected (HTTP 401)');
     }
 
     if (res.status === 429 || res.status >= 500) {
