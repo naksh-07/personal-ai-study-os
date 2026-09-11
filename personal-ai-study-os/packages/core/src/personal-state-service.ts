@@ -39,6 +39,8 @@ import {
   LinkCalendarEventInputSchema,
   LinkScheduleInput,
   LinkScheduleInputSchema,
+  RecordScheduleDecisionInput,
+  RecordScheduleDecisionInputSchema,
   generateId,
   deriveAccuracy,
   NotFoundError,
@@ -188,8 +190,9 @@ export class PersonalStateService {
   /**
    * 2. get_study_state:
    * Study-level aggregate state representation derived purely from projections and canonical events.
+   * Enriched with pending workload, external tasks, and calendar study windows for Spark reconciliation.
    */
-  async getStudyState(): Promise<StudyState> {
+  async getStudyState(params?: { date?: string; timezone?: string }): Promise<StudyState> {
     const allProgress = await ProjectionsRepository.getAllStudyProgress(this.db);
     const allChapters = await EntitiesRepository.getAllChapters(this.db);
     const allSubjects = await EntitiesRepository.getAllSubjects(this.db);
@@ -242,6 +245,70 @@ export class PersonalStateService {
       summary: `${e.eventType} by ${e.actor.type}:${e.actor.id} via ${e.source.system}`,
     }));
 
+    // Pending workload for scheduling (in_progress or not_started chapters)
+    const pendingWorkload = allChapters
+      .filter(c => c.status !== 'completed')
+      .map(c => {
+        const subj = allSubjects.find(s => s.id === c.subjectId);
+        const prog = allProgress.find(p => p.chapterId === c.id);
+        return {
+          chapterId: c.id,
+          subjectId: c.subjectId,
+          subjectName: subj?.name,
+          name: c.name,
+          status: c.status,
+          progressPercent: prog?.progressPercent ?? c.progress ?? 0.0,
+        };
+      });
+
+    // Upcoming external tasks (Google Tasks needsAction)
+    const taskLinks = await EntitiesRepository.getTaskLinks(this.db);
+    const upcomingTasks = taskLinks
+      .filter(t => t.statusSnapshot === 'needsAction' || !t.statusSnapshot)
+      .map(t => ({
+        taskLinkId: t.id,
+        taskId: t.taskId,
+        tasklistId: t.tasklistId,
+        title: t.titleSnapshot ?? `Task ${t.taskId}`,
+        entityType: t.entityType,
+        entityId: t.entityId,
+        status: t.statusSnapshot ?? 'needsAction',
+      }));
+
+    // Target study windows (Google Calendar schedule blocks for target date)
+    let timezone = params?.timezone;
+    if (!timezone) {
+      const user = await this.db.selectFrom('users').select('timezone').executeTakeFirst();
+      timezone = user?.timezone ?? 'UTC';
+    }
+    const nowIso = new Date().toISOString();
+    const date = params?.date ?? ProjectionEngine.extractDate(nowIso, timezone);
+    const startOfDay = `${date}T00:00:00.000Z`;
+    const endOfDay = `${date}T23:59:59.999Z`;
+
+    const calendarLinks = await EntitiesRepository.getCalendarLinks(this.db, startOfDay, endOfDay);
+    const targetStudyWindows = calendarLinks.map(l => ({
+      calendarLinkId: l.id,
+      calendarEventId: l.eventId,
+      title: l.titleSnapshot,
+      startsAt: l.startsAt,
+      endsAt: l.endsAt,
+      status: l.statusSnapshot,
+      entityType: l.entityType,
+      entityId: l.entityId,
+    }));
+
+    let currentOrNextWindow = null;
+    const current = targetStudyWindows.find(w => w.startsAt <= nowIso && w.endsAt >= nowIso);
+    if (current) {
+      currentOrNextWindow = current;
+    } else {
+      const upcoming = targetStudyWindows
+        .filter(w => w.startsAt > nowIso)
+        .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+      currentOrNextWindow = upcoming[0] ?? null;
+    }
+
     return {
       totalStudyMinutes,
       completedChaptersCount,
@@ -252,6 +319,10 @@ export class PersonalStateService {
       accuracy,
       subjectSummaries,
       recentActivity,
+      pendingWorkload,
+      upcomingTasks,
+      targetStudyWindows,
+      currentOrNextWindow,
     };
   }
 
@@ -1457,6 +1528,170 @@ export class PersonalStateService {
         operation: 'link_schedule',
         entityId: scheduleLinkId,
         data: { scheduleLinkId, taskId: input.taskId, calendarEventId: input.calendarEventId },
+      };
+    });
+  }
+
+  /**
+   * 20. record_schedule_decision:
+   * Structured scheduling decision from Gemini Spark.
+   * Atomically records durable decision, updates calendar & schedule linkage,
+   * emits canonical events (schedule_adjusted / schedule_missed / decision_recorded),
+   * and preserves idempotency.
+   */
+  async recordScheduleDecision(
+    rawInput: RecordScheduleDecisionInput,
+    idempotency?: IdempotencyContext
+  ): Promise<MutationResult> {
+    const input = RecordScheduleDecisionInputSchema.parse(rawInput);
+
+    return this.withIdempotency('record_schedule_decision', idempotency, input, async () => {
+      // Validate chapter if provided
+      if (input.chapterId) {
+        const chapter = await EntitiesRepository.getChapter(this.db, input.chapterId);
+        if (!chapter) {
+          throw new NotFoundError('CHAPTER_NOT_FOUND', `Chapter '${input.chapterId}' not found.`);
+        }
+      }
+
+      // Validate project if provided
+      if (input.projectId) {
+        const project = await EntitiesRepository.getProject(this.db, input.projectId);
+        if (!project) {
+          throw new NotFoundError('PROJECT_NOT_FOUND', `Project '${input.projectId}' not found.`);
+        }
+      }
+
+      const decisionId = generateId('dec');
+      const now = new Date().toISOString();
+
+      // 1. Insert into decisions table
+      await EntitiesRepository.insertDecision(this.db, {
+        id: decisionId,
+        projectId: input.projectId ?? null,
+        title: input.title ?? input.decision,
+        context: input.rationale ?? 'Gemini Spark schedule allocation & reconciliation',
+        decision: input.decision,
+        consequences: input.calendarEventId
+          ? `Allocated calendar block '${input.calendarEventId}'${input.startTime ? ` from ${input.startTime} to ${input.endTime}` : ''}`
+          : 'Schedule decision recorded',
+        createdAt: now,
+      });
+
+      let calendarLinkId: string | undefined;
+      let scheduleLinkId: string | undefined;
+
+      // 2. If calendarEventId and timing provided, upsert calendar_links
+      if (input.calendarEventId && input.startTime && input.endTime) {
+        calendarLinkId = generateId('callink');
+        await EntitiesRepository.upsertCalendarLink(this.db, {
+          id: calendarLinkId,
+          provider: 'google_calendar',
+          calendarId: input.calendarId,
+          eventId: input.calendarEventId,
+          entityType: input.taskId ? 'task' : 'study_session',
+          entityId: input.taskId ?? input.chapterId ?? input.calendarEventId,
+          titleSnapshot: input.title ?? input.decision,
+          startsAt: input.startTime,
+          endsAt: input.endTime,
+          statusSnapshot: input.decisionType === 'schedule_missed' ? 'cancelled' : 'confirmed',
+          lastSyncedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      // 3. If taskId and calendarEventId provided, insert schedule_links
+      if (input.taskId && input.calendarEventId) {
+        const existingLinks = await EntitiesRepository.getScheduleLinks(
+          this.db,
+          input.taskId,
+          input.calendarEventId
+        );
+        if (existingLinks.length > 0) {
+          scheduleLinkId = existingLinks[0].id;
+        } else {
+          scheduleLinkId = generateId('schedlink');
+          await EntitiesRepository.insertScheduleLink(this.db, {
+            id: scheduleLinkId,
+            taskId: input.taskId,
+            calendarEventId: input.calendarEventId,
+            relationshipType: 'session_for_task',
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      }
+
+      // 4. Create and atomically ingest Canonical Event
+      let event: CanonicalEvent;
+      if (input.decisionType === 'schedule_missed') {
+        event = CanonicalEventEngine.createEvent({
+          eventType: 'schedule_missed',
+          actor: { type: 'agent', id: 'agt_spark' },
+          source: { system: 'spark', interface: 'mcp' },
+          payload: {
+            calendarEventId: input.calendarEventId ?? 'unknown_event',
+            scheduledStart: input.startTime ?? input.previousStart ?? now,
+            scheduledEnd: input.endTime ?? input.previousEnd ?? now,
+            reason: input.rationale ?? input.decision,
+          },
+          correlationId: input.correlationId,
+          causationId: input.causationId,
+        });
+      } else if (
+        input.decisionType === 'schedule_adjusted' &&
+        input.calendarEventId &&
+        input.startTime &&
+        input.endTime
+      ) {
+        event = CanonicalEventEngine.createEvent({
+          eventType: 'schedule_adjusted',
+          actor: { type: 'agent', id: 'agt_spark' },
+          source: { system: 'spark', interface: 'mcp' },
+          payload: {
+            calendarEventId: input.calendarEventId,
+            previousStart: input.previousStart ?? input.startTime,
+            previousEnd: input.previousEnd ?? input.endTime,
+            newStart: input.startTime,
+            newEnd: input.endTime,
+            reason: input.rationale ?? input.decision,
+          },
+          correlationId: input.correlationId,
+          causationId: input.causationId,
+        });
+      } else {
+        event = CanonicalEventEngine.createEvent({
+          eventType: 'decision_recorded',
+          actor: { type: 'agent', id: 'agt_spark' },
+          source: { system: 'spark', interface: 'mcp' },
+          payload: {
+            decisionId,
+            projectId: input.projectId,
+            title: input.title ?? 'Schedule Decision',
+            decision: input.decision,
+            consequences: input.rationale,
+          },
+          correlationId: input.correlationId,
+          causationId: input.causationId,
+        });
+      }
+
+      await AtomicWriter.ingestAndProjectAtomic(this.d1, this.db, { event });
+
+      return {
+        success: true,
+        operation: 'record_schedule_decision',
+        eventId: event.eventId,
+        entityId: decisionId,
+        data: {
+          decisionId,
+          decisionType: input.decisionType,
+          calendarEventId: input.calendarEventId,
+          scheduleLinkId,
+          calendarLinkId,
+          eventId: event.eventId,
+        },
       };
     });
   }

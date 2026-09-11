@@ -477,6 +477,43 @@ export interface StudyState {
     occurredAt: string;
     summary: string;
   }>;
+  pendingWorkload?: Array<{
+    chapterId: string;
+    subjectId: string;
+    subjectName?: string;
+    name: string;
+    status: string;
+    progressPercent: number;
+  }>;
+  upcomingTasks?: Array<{
+    taskLinkId: string;
+    taskId: string;
+    tasklistId: string;
+    title: string;
+    entityType: string;
+    entityId: string;
+    status: string;
+  }>;
+  targetStudyWindows?: Array<{
+    calendarLinkId: string;
+    calendarEventId: string;
+    title?: string | null;
+    startsAt: string;
+    endsAt: string;
+    status?: string | null;
+    entityType?: string;
+    entityId?: string;
+  }>;
+  currentOrNextWindow?: {
+    calendarLinkId: string;
+    calendarEventId: string;
+    title?: string | null;
+    startsAt: string;
+    endsAt: string;
+    status?: string | null;
+    entityType?: string;
+    entityId?: string;
+  } | null;
 }
 
 export interface ChapterHierarchyItem {
@@ -775,6 +812,45 @@ export const LinkScheduleInputSchema = z.object({
   causationId: z.string().optional(),
 });
 export type LinkScheduleInput = z.input<typeof LinkScheduleInputSchema>;
+
+export const ScheduleDecisionTypeSchema = z.enum([
+  'schedule_adjusted',
+  'schedule_allocated',
+  'schedule_missed',
+  'decision_only',
+]);
+export type ScheduleDecisionType = z.infer<typeof ScheduleDecisionTypeSchema>;
+
+export const RecordScheduleDecisionInputSchema = z.object({
+  decisionType: ScheduleDecisionTypeSchema.default('schedule_adjusted'),
+  decision: z.string().min(1),
+  rationale: z.string().optional(),
+  calendarEventId: z.string().optional(),
+  calendarId: z.string().default('primary'),
+  taskId: z.string().optional(),
+  chapterId: z.string().startsWith('chap_').optional(),
+  projectId: z.string().startsWith('proj_').optional(),
+  startTime: z.string().datetime().optional(),
+  endTime: z.string().datetime().optional(),
+  previousStart: z.string().datetime().optional(),
+  previousEnd: z.string().datetime().optional(),
+  title: z.string().optional(),
+  correlationId: z.string().optional(),
+  causationId: z.string().optional(),
+}).refine(
+  data => {
+    if (data.startTime && data.endTime) {
+      return new Date(data.endTime).getTime() >= new Date(data.startTime).getTime();
+    }
+    return true;
+  },
+  {
+    message: 'endTime must be greater than or equal to startTime',
+    path: ['endTime'],
+  }
+);
+export type RecordScheduleDecisionInput = z.input<typeof RecordScheduleDecisionInputSchema>;
+export type RecordScheduleDecisionParsed = z.infer<typeof RecordScheduleDecisionInputSchema>;
 
 // ============================================================================
 // 9. QUEUE MESSAGE ENVELOPE (Spec v1.2.3 Section 8.3)

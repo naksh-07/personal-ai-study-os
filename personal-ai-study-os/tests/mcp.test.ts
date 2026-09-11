@@ -232,7 +232,7 @@ describe('Slice 4: Remote MCP Server (Streamable HTTP 2026-07-28 & Semantic Tool
       expect(res.status).toBe(200);
       const json: any = await res.json();
       const tools = json.result.tools;
-      expect(tools.length).toBe(25);
+      expect(tools.length).toBe(26);
 
       const toolNames = tools.map((t: any) => t.name);
       // 12 Read tools
@@ -249,13 +249,14 @@ describe('Slice 4: Remote MCP Server (Streamable HTTP 2026-07-28 & Semantic Tool
       expect(toolNames).toContain('get_agent_state');
       expect(toolNames).toContain('get_source_state');
 
-      // 12 Write tools
+      // 13 Write tools
       expect(toolNames).toContain('record_event');
       expect(toolNames).toContain('record_study_session');
       expect(toolNames).toContain('update_progress');
       expect(toolNames).toContain('complete_chapter');
       expect(toolNames).toContain('record_research');
       expect(toolNames).toContain('record_decision');
+      expect(toolNames).toContain('record_schedule_decision');
       expect(toolNames).toContain('link_task');
       expect(toolNames).toContain('link_calendar_event');
       expect(toolNames).toContain('record_project_event');
@@ -604,7 +605,7 @@ describe('Slice 4: Remote MCP Server (Streamable HTTP 2026-07-28 & Semantic Tool
 
       expect(msgRes1.status).toBe(200);
       const json1: any = await msgRes1.json();
-      expect(json1.result.tools.length).toBe(25);
+      expect(json1.result.tools.length).toBe(26);
 
       const msgRes2 = await app.request('/mcp/messages', {
         method: 'POST',
@@ -621,7 +622,223 @@ describe('Slice 4: Remote MCP Server (Streamable HTTP 2026-07-28 & Semantic Tool
 
       expect(msgRes2.status).toBe(200);
       const json2: any = await msgRes2.json();
-      expect(json2.result.tools.length).toBe(25);
+      expect(json2.result.tools.length).toBe(26);
+    });
+  });
+
+  describe('Gemini Spark Domain MCP Integration Suite', () => {
+    it('get_study_state returns enriched workload, tasks, and target study windows', async () => {
+      const res = await app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${readToken}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'spark_get_study_state',
+          method: 'tools/call',
+          params: {
+            name: 'get_study_state',
+            arguments: {
+              date: '2026-09-11',
+              timezone: 'UTC',
+            },
+          },
+        }),
+      }, makeEnv());
+
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.error).toBeUndefined();
+      expect(json.result.isError).toBeFalsy();
+
+      const state = JSON.parse(json.result.content[0].text);
+      expect(state.totalStudyMinutes).toBeDefined();
+      expect(state.subjectSummaries).toBeDefined();
+      expect(state.recentActivity).toBeDefined();
+
+      // Verify Spark-specific enriched fields
+      expect(state.pendingWorkload).toBeDefined();
+      expect(Array.isArray(state.pendingWorkload)).toBe(true);
+      expect(state.upcomingTasks).toBeDefined();
+      expect(Array.isArray(state.upcomingTasks)).toBe(true);
+      expect(state.targetStudyWindows).toBeDefined();
+      expect(Array.isArray(state.targetStudyWindows)).toBe(true);
+      expect(state).toHaveProperty('currentOrNextWindow');
+    });
+
+    it('record_schedule_decision rejects invocation with read-only token', async () => {
+      const res = await app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${readToken}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'spark_unauth_write',
+          method: 'tools/call',
+          params: {
+            name: 'record_schedule_decision',
+            arguments: {
+              decision: 'Unauthorized reschedule attempt',
+            },
+          },
+        }),
+      }, makeEnv());
+
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.error).toBeDefined();
+      expect(json.error.message).toContain("requires 'write' scope");
+    });
+
+    it('record_schedule_decision rejects missing decision input', async () => {
+      const res = await app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${writeToken}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'spark_missing_input',
+          method: 'tools/call',
+          params: {
+            name: 'record_schedule_decision',
+            arguments: {},
+          },
+        }),
+      }, makeEnv());
+
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.result.isError).toBe(true);
+      expect(json.result.content[0].text).toContain("Parameter 'decision' is required");
+    });
+
+    it('record_schedule_decision strictly rejects raw SQL in arguments', async () => {
+      const res = await app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${writeToken}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'spark_sql_attempt',
+          method: 'tools/call',
+          params: {
+            name: 'record_schedule_decision',
+            arguments: {
+              decision: 'SELECT * FROM users WHERE 1=1',
+            },
+          },
+        }),
+      }, makeEnv());
+
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.error).toBeDefined();
+      expect(json.error.message).toContain('Raw SQL execution');
+    });
+
+    it('record_schedule_decision records schedule_adjusted decision with write token', async () => {
+      const res = await app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${writeToken}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'spark_valid_adjust',
+          method: 'tools/call',
+          params: {
+            name: 'record_schedule_decision',
+            arguments: {
+              decisionType: 'schedule_adjusted',
+              decision: 'Spark shifted Chapter 1 deep work to 16:00',
+              rationale: 'Reconciled calendar collision with prior appointment',
+              calendarEventId: 'cal_spark_mcp_evt_01',
+              chapterId: testChapterId,
+              startTime: '2026-09-11T16:00:00.000Z',
+              endTime: '2026-09-11T17:30:00.000Z',
+              previousStart: '2026-09-11T11:00:00.000Z',
+              previousEnd: '2026-09-11T12:30:00.000Z',
+              idempotency_key: 'idemp_spark_adjust_001',
+            },
+          },
+        }),
+      }, makeEnv());
+
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.error).toBeUndefined();
+      expect(json.result.isError).toBeFalsy();
+
+      const content = JSON.parse(json.result.content[0].text);
+      expect(content.success).toBe(true);
+      expect(content.operation).toBe('record_schedule_decision');
+      expect(content.eventId).toBeDefined();
+      expect(content.entityId).toBeDefined();
+      expect(content.data.calendarEventId).toBe('cal_spark_mcp_evt_01');
+      expect(content.data.decisionType).toBe('schedule_adjusted');
+    });
+
+    it('record_schedule_decision replays idempotent call when key is reused with identical payload', async () => {
+      const payload = {
+        name: 'record_schedule_decision',
+        arguments: {
+          decision: 'Reconciled study block idempotency check',
+          calendarEventId: 'cal_spark_mcp_evt_02',
+          startTime: '2026-09-11T19:00:00.000Z',
+          endTime: '2026-09-11T20:00:00.000Z',
+          idempotency_key: 'idemp_spark_replay_002',
+        },
+      };
+
+      const res1 = await app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${writeToken}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'spark_idemp_1',
+          method: 'tools/call',
+          params: payload,
+        }),
+      }, makeEnv());
+
+      expect(res1.status).toBe(200);
+      const json1: any = await res1.json();
+      const content1 = JSON.parse(json1.result.content[0].text);
+      expect(content1.success).toBe(true);
+
+      // Replay identical call
+      const res2 = await app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${writeToken}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'spark_idemp_2',
+          method: 'tools/call',
+          params: payload,
+        }),
+      }, makeEnv());
+
+      expect(res2.status).toBe(200);
+      const json2: any = await res2.json();
+      const content2 = JSON.parse(json2.result.content[0].text);
+      expect(content2.success).toBe(true);
+      expect(content2.replayed).toBe(true);
+      expect(content2.entityId).toBe(content1.entityId);
     });
   });
 });

@@ -44,14 +44,20 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: 'get_study_state',
-    description: 'Study-level aggregate state representation derived purely from projections and canonical events.',
+    description: 'Retrieves authoritative study progress, pending chapter workload, active Google tasks, and calendar study windows for scheduling and reconciliation.',
     scope: 'read',
     inputSchema: {
       type: 'object',
-      properties: {},
+      properties: {
+        date: { type: 'string', description: 'YYYY-MM-DD format target date for study windows (defaults to today)' },
+        timezone: { type: 'string', description: 'IANA timezone string (e.g. UTC, Asia/Kolkata)' },
+      },
     },
-    handler: async (service) => {
-      return await service.getStudyState();
+    handler: async (service, args) => {
+      return await service.getStudyState({
+        date: args?.date,
+        timezone: args?.timezone,
+      });
     },
   },
   {
@@ -752,6 +758,77 @@ export const MCP_TOOLS: McpToolDefinition[] = [
           },
         },
         idempKey ? { key: idempKey, sourceSystem: 'mcp' } : undefined
+      );
+    },
+  },
+  {
+    name: 'record_schedule_decision',
+    description: 'Records a validated scheduling decision from Gemini Spark into canonical events, updates calendar/schedule links, and persists decision history with idempotency.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        decisionType: {
+          type: 'string',
+          enum: ['schedule_adjusted', 'schedule_allocated', 'schedule_missed', 'decision_only'],
+          description: 'Category of scheduling action taken by Spark',
+        },
+        decision_type: { type: 'string' },
+        decision: { type: 'string', description: 'Concise summary of the scheduling decision or action taken' },
+        rationale: { type: 'string', description: 'Reasoning context or constraints for this scheduling decision' },
+        reason: { type: 'string' },
+        calendarEventId: { type: 'string', description: 'Google Calendar event ID associated with the scheduled block' },
+        calendar_event_id: { type: 'string' },
+        calendarId: { type: 'string', description: "Google Calendar identifier (defaults to 'primary')" },
+        calendar_id: { type: 'string' },
+        taskId: { type: 'string', description: 'Google Task ID allocated or linked to the study block (optional)' },
+        task_id: { type: 'string' },
+        chapterId: { type: 'string', description: 'Canonical chapter ID (chap_...) being scheduled (optional)' },
+        chapter_id: { type: 'string' },
+        projectId: { type: 'string', description: 'Canonical project ID (proj_...) if decision relates to a project (optional)' },
+        project_id: { type: 'string' },
+        startTime: { type: 'string', description: 'ISO 8601 start datetime for the scheduled window' },
+        start_time: { type: 'string' },
+        endTime: { type: 'string', description: 'ISO 8601 end datetime for the scheduled window' },
+        end_time: { type: 'string' },
+        previousStart: { type: 'string', description: 'Previous ISO 8601 start datetime if adjusting existing event' },
+        previous_start: { type: 'string' },
+        previousEnd: { type: 'string', description: 'Previous ISO 8601 end datetime if adjusting existing event' },
+        previous_end: { type: 'string' },
+        title: { type: 'string', description: 'Title snapshot of scheduled session or calendar block (optional)' },
+        idempotency_key: { type: 'string', description: 'Unique client idempotency key to prevent duplicate mutations' },
+        idempotencyKey: { type: 'string' },
+        correlationId: { type: 'string' },
+        correlation_id: { type: 'string' },
+      },
+      required: ['decision'],
+    },
+    handler: async (service, args) => {
+      const idempKey = args?.idempotency_key || args?.idempotencyKey;
+      const decision = args?.decision;
+      if (!decision) {
+        throw new ValidationError("Parameter 'decision' is required for record_schedule_decision");
+      }
+
+      return await service.recordScheduleDecision(
+        {
+          decisionType: args?.decisionType || args?.decision_type || 'schedule_adjusted',
+          decision,
+          rationale: args?.rationale || args?.reason,
+          calendarEventId: args?.calendarEventId || args?.calendar_event_id,
+          calendarId: args?.calendarId || args?.calendar_id || 'primary',
+          taskId: args?.taskId || args?.task_id,
+          chapterId: args?.chapterId || args?.chapter_id,
+          projectId: args?.projectId || args?.project_id,
+          startTime: args?.startTime || args?.start_time,
+          endTime: args?.endTime || args?.end_time,
+          previousStart: args?.previousStart || args?.previous_start,
+          previousEnd: args?.previousEnd || args?.previous_end,
+          title: args?.title,
+          correlationId: args?.correlationId || args?.correlation_id,
+          causationId: args?.causationId || args?.causation_id,
+        },
+        idempKey ? { key: idempKey, sourceSystem: 'spark' } : undefined
       );
     },
   },

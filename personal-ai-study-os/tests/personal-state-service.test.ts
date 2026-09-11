@@ -703,4 +703,101 @@ describe('Slice 3: PersonalStateService', () => {
     const event = await CanonicalEventsRepository.getById(ctx.db, result.eventId!);
     expect(event?.correlationId).toBe(correlationId);
   });
+
+  it('24. recordScheduleDecision records schedule_adjusted decision and emits canonical event', async () => {
+    const result = await service.recordScheduleDecision({
+      decisionType: 'schedule_adjusted',
+      decision: 'Shifted Chapter 1 revision to 14:00 due to meeting conflict',
+      rationale: 'Operator calendar busy in morning window',
+      calendarEventId: 'cal_event_spark_101',
+      calendarId: 'primary',
+      chapterId: testChapterId1,
+      startTime: '2026-09-11T14:00:00.000Z',
+      endTime: '2026-09-11T15:30:00.000Z',
+      previousStart: '2026-09-11T10:00:00.000Z',
+      previousEnd: '2026-09-11T11:30:00.000Z',
+      title: 'Deep Work: Cell Structure Revision',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.operation).toBe('record_schedule_decision');
+    expect(result.eventId).toBeDefined();
+    expect(result.entityId).toBeDefined();
+
+    // Verify decision stored in decisions table
+    const decision = await ctx.db
+      .selectFrom('decisions')
+      .selectAll()
+      .where('id', '=', result.entityId!)
+      .executeTakeFirst();
+    expect(decision).toBeDefined();
+    expect(decision?.decision).toContain('Shifted Chapter 1 revision');
+
+    // Verify calendar link updated in calendar_links table
+    const calLink = await ctx.db
+      .selectFrom('calendar_links')
+      .selectAll()
+      .where('event_id', '=', 'cal_event_spark_101')
+      .executeTakeFirst();
+    expect(calLink).toBeDefined();
+    expect(calLink?.starts_at).toBe('2026-09-11T14:00:00.000Z');
+    expect(calLink?.ends_at).toBe('2026-09-11T15:30:00.000Z');
+
+    // Verify canonical event
+    const event = await CanonicalEventsRepository.getById(ctx.db, result.eventId!);
+    expect(event).toBeDefined();
+    expect(event?.eventType).toBe('schedule_adjusted');
+    expect(event?.actor.id).toBe('agt_spark');
+    expect(event?.source.system).toBe('spark');
+  });
+
+  it('25. recordScheduleDecision records schedule_missed decision and flags cancelled status', async () => {
+    const result = await service.recordScheduleDecision({
+      decisionType: 'schedule_missed',
+      decision: 'Operator missed scheduled study block for Chapter 2',
+      rationale: 'No activity detected during allocated window',
+      calendarEventId: 'cal_event_spark_102',
+      chapterId: testChapterId2,
+      startTime: '2026-09-11T08:00:00.000Z',
+      endTime: '2026-09-11T09:00:00.000Z',
+    });
+
+    expect(result.success).toBe(true);
+    const event = await CanonicalEventsRepository.getById(ctx.db, result.eventId!);
+    expect(event?.eventType).toBe('schedule_missed');
+
+    const calLink = await ctx.db
+      .selectFrom('calendar_links')
+      .selectAll()
+      .where('event_id', '=', 'cal_event_spark_102')
+      .executeTakeFirst();
+    expect(calLink?.status_snapshot).toBe('cancelled');
+  });
+
+  it('26. recordScheduleDecision validates chapter existence', async () => {
+    await expect(
+      service.recordScheduleDecision({
+        decision: 'Allocate unknown chapter',
+        chapterId: 'chap_nonexistent_999',
+      })
+    ).rejects.toThrow('not found');
+  });
+
+  it('27. recordScheduleDecision supports idempotent replay', async () => {
+    const idempKey = 'idemp_spark_sched_test_001';
+    const payload = {
+      decision: 'Confirmed evening review block',
+      calendarEventId: 'cal_event_spark_103',
+      startTime: '2026-09-11T18:00:00.000Z',
+      endTime: '2026-09-11T19:00:00.000Z',
+    };
+
+    const res1 = await service.recordScheduleDecision(payload, { key: idempKey, sourceSystem: 'spark' });
+    expect(res1.success).toBe(true);
+
+    const res2 = await service.recordScheduleDecision(payload, { key: idempKey, sourceSystem: 'spark' });
+    expect(res2.success).toBe(true);
+    expect(res2.replayed).toBe(true);
+    expect(res2.entityId).toBe(res1.entityId);
+  });
 });
