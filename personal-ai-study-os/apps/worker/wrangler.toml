@@ -73,7 +73,7 @@ name = "personal-ai-study-os-production"
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "personal_study_os_db_prod"
-database_id = "00000000-0000-0000-0000-000000000002"
+database_id = "5d7a4b5e-de39-4ccf-bade-219ac3d97edd"
 migrations_dir = "migrations"
 
 [[env.production.queues.producers]]
