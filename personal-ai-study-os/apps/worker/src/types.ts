@@ -15,6 +15,8 @@ export interface Env {
   GOOGLE_REFRESH_TOKEN?: string;
   GOOGLE_TASKS_ACCESS_TOKEN?: string;
   GOOGLE_CALENDAR_ACCESS_TOKEN?: string;
+  GOOGLE_APPS_SCRIPT_BRIDGE_URL?: string;
+  GOOGLE_APPS_SCRIPT_BRIDGE_SECRET?: string;
   NOTION_API_KEY?: string;
 }
 

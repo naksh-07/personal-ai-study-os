@@ -11,6 +11,11 @@ import {
   NotionAdapter,
   GoogleTokenProvider,
   IGoogleTokenProvider,
+  IGoogleTasksAdapter,
+  IGoogleCalendarAdapter,
+  GoogleBridgeClient,
+  GoogleTasksBridgeAdapter,
+  GoogleCalendarBridgeAdapter,
 } from '@personal-os/adapters';
 
 /**
@@ -39,6 +44,44 @@ export function getGoogleTokenProvider(
     });
   }
   return undefined;
+}
+
+/**
+ * Resolves the Google Tasks adapter.
+ * Prefers the Apps Script bridge when configured; falls back to direct OAuth adapter.
+ */
+export function getGoogleTasksAdapter(env: Env): IGoogleTasksAdapter {
+  if (env.GOOGLE_APPS_SCRIPT_BRIDGE_URL && env.GOOGLE_APPS_SCRIPT_BRIDGE_SECRET) {
+    const client = new GoogleBridgeClient({
+      bridgeUrl: env.GOOGLE_APPS_SCRIPT_BRIDGE_URL,
+      bridgeSecret: env.GOOGLE_APPS_SCRIPT_BRIDGE_SECRET,
+    });
+    return new GoogleTasksBridgeAdapter(client);
+  }
+  const tokenProvider = getGoogleTokenProvider(env, env.GOOGLE_TASKS_ACCESS_TOKEN);
+  return new GoogleTasksAdapter({
+    tokenProvider,
+    accessToken: env.GOOGLE_TASKS_ACCESS_TOKEN,
+  });
+}
+
+/**
+ * Resolves the Google Calendar adapter.
+ * Prefers the Apps Script bridge when configured; falls back to direct OAuth adapter.
+ */
+export function getGoogleCalendarAdapter(env: Env): IGoogleCalendarAdapter {
+  if (env.GOOGLE_APPS_SCRIPT_BRIDGE_URL && env.GOOGLE_APPS_SCRIPT_BRIDGE_SECRET) {
+    const client = new GoogleBridgeClient({
+      bridgeUrl: env.GOOGLE_APPS_SCRIPT_BRIDGE_URL,
+      bridgeSecret: env.GOOGLE_APPS_SCRIPT_BRIDGE_SECRET,
+    });
+    return new GoogleCalendarBridgeAdapter(client);
+  }
+  const tokenProvider = getGoogleTokenProvider(env, env.GOOGLE_CALENDAR_ACCESS_TOKEN);
+  return new GoogleCalendarAdapter({
+    tokenProvider,
+    accessToken: env.GOOGLE_CALENDAR_ACCESS_TOKEN,
+  });
 }
 
 /**
@@ -81,11 +124,7 @@ export async function dispatchToProviderAdapter(
       break;
     }
     case 'google_tasks': {
-      const tokenProvider = getGoogleTokenProvider(env, env.GOOGLE_TASKS_ACCESS_TOKEN);
-      const adapter = new GoogleTasksAdapter({
-        tokenProvider,
-        accessToken: env.GOOGLE_TASKS_ACCESS_TOKEN,
-      });
+      const adapter = getGoogleTasksAdapter(env);
       const tasklistId = p.tasklistId ?? p.tasklist_id ?? '@default';
       if (operation === 'create' || operation === 'sync') {
         const result = await adapter.createTask({
@@ -141,11 +180,7 @@ export async function dispatchToProviderAdapter(
       break;
     }
     case 'google_calendar': {
-      const tokenProvider = getGoogleTokenProvider(env, env.GOOGLE_CALENDAR_ACCESS_TOKEN);
-      const adapter = new GoogleCalendarAdapter({
-        tokenProvider,
-        accessToken: env.GOOGLE_CALENDAR_ACCESS_TOKEN,
-      });
+      const adapter = getGoogleCalendarAdapter(env);
       const calendarId = p.calendarId ?? p.calendar_id ?? 'primary';
       if (operation === 'create' || operation === 'sync') {
         const result = await adapter.createEvent({
