@@ -6,6 +6,7 @@ import { stateRoutes } from './routes/state.routes';
 import { eventsRoutes } from './routes/events.routes';
 import { mutationsRoutes } from './routes/mutations.routes';
 import { adminRoutes } from './routes/admin.routes';
+import { oauthRoutes } from './routes/oauth.routes';
 import { mcpRouter } from './mcp/streamable-http';
 import { processQueueBatch } from './queue/consumer';
 import { handleScheduled } from './cron/scheduled';
@@ -50,6 +51,9 @@ app.route('/v1', stateRoutes);
 app.route('/v1', eventsRoutes);
 app.route('/v1', mutationsRoutes);
 app.route('/v1', adminRoutes);
+
+// Mount OAuth 2.0 Authorization Server & Metadata Routes
+app.route('/', oauthRoutes);
 
 // Mount Remote MCP Server Routes (/mcp, /mcp/sse, /mcp/messages)
 app.route('/', mcpRouter);

@@ -977,6 +977,11 @@ export async function executeMcpTool(
   }
 
   // 3. Authorization Check
+  if (tool.scope === 'read' && !userScopes.includes('read') && !userScopes.includes('admin')) {
+    throw new ForbiddenError(
+      `Forbidden: Tool '${toolName}' requires 'read' scope (present: ${userScopes.join(', ')})`
+    );
+  }
   if (tool.scope === 'write' && !userScopes.includes('write') && !userScopes.includes('admin')) {
     throw new ForbiddenError(
       `Forbidden: Tool '${toolName}' requires 'write' scope (present: ${userScopes.join(', ')})`

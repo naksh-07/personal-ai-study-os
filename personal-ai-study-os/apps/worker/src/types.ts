@@ -18,6 +18,9 @@ export interface Env {
   GOOGLE_APPS_SCRIPT_BRIDGE_URL?: string;
   GOOGLE_APPS_SCRIPT_BRIDGE_SECRET?: string;
   NOTION_API_KEY?: string;
+  SPARK_CLIENT_ID?: string;
+  SPARK_CLIENT_SECRET?: string;
+  SPARK_REDIRECT_URI?: string;
 }
 
 export interface AppVariables {

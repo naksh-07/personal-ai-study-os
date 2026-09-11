@@ -45,8 +45,9 @@ The Personal State Service exposes a compliant **Model Context Protocol (MCP)** 
 
 ## 4. Authentication & Security Invariants
 
-1. **OAuth 2.1 Bearer Tokens**:
-   Every request must provide a valid JWT via the `Authorization: Bearer <token>` header or `token` query parameter.
+### 4.1 Security Boundary Invariants
+1. **OAuth 2.0 / 2.1 Bearer Tokens**:
+   Every MCP request must provide a valid JWT via the `Authorization: Bearer <token>` header or `token` query parameter.
 2. **Audience Validation**:
    The token `aud` claim **must** strictly match one of the allowed audiences:
    - `https://api.personal-os.com/mcp`
@@ -58,6 +59,35 @@ The Personal State Service exposes a compliant **Model Context Protocol (MCP)** 
    - `write`: Required for state mutations (`record_schedule_decision`, `record_study_session`, etc.).
 4. **Strict Raw SQL Gate**:
    Calls containing raw SQL keywords (`SELECT`, `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `TRUNCATE`, `CREATE`) in tool names or argument strings are immediately blocked with `ForbiddenError`.
+
+### 4.2 Standards-Compliant OAuth 2.0 Architecture (Phase 4C)
+To ensure seamless compatibility with Gemini Spark Custom Connected Apps and modern MCP clients, the Personal State Service implements standards-compliant OAuth 2.0:
+
+1. **RFC 8414 Authorization Server Metadata**:
+   - `GET /.well-known/oauth-authorization-server`
+   - `GET /.well-known/openid-configuration` (compatibility alias)
+   Returns server endpoints, supported grant types (`authorization_code`, `refresh_token`), response types (`code`), PKCE methods (`S256`), and scopes (`read`, `write`).
+2. **RFC 9728 Protected Resource Metadata & Discovery Challenge**:
+   - `GET /.well-known/oauth-protected-resource`
+   - When an unauthenticated request reaches `/mcp`, the server responds with `401 Unauthorized` and standard discovery headers:
+     `WWW-Authenticate: Bearer realm="personal-ai-study-os", resource_metadata="<origin>/.well-known/oauth-protected-resource"`
+     `Link: <<origin>/.well-known/oauth-protected-resource>; rel="oauth-protected-resource"`
+3. **Authorization Endpoint (`GET /oauth/authorize`)**:
+   - Validates `response_type=code`, `client_id`, `redirect_uri` (allowing Google/Gemini callback domains `*.google.com`, `*.googleusercontent.com`), `state`, and optional PKCE `code_challenge` / `code_challenge_method=S256`.
+   - Generates an HMAC-SHA256 signed stateless authorization code (5-minute lifetime) and issues an HTTP 302 Found redirect to `<redirect_uri>?code=...&state=...`.
+4. **Token Endpoint (`POST /oauth/token`)**:
+   - Supports confidential client authentication via `client_secret_basic` (`Authorization: Basic ...`) and `client_secret_post`.
+   - Validates authorization code signature, expiration, client binding, redirect URI binding, and single-use replay protection (enforced in-memory and via `idempotency_records`).
+   - Verifies PKCE `code_verifier` (S256 SHA-256 base64url).
+   - Issues standard signed JWT `access_token` (1 hour, audience `https://api.personal-os.com/mcp`, scopes `read write`) and `refresh_token` (30 days).
+
+### 4.3 Gemini Spark Connected App Configuration Guide
+In Gemini's Custom Connected App modal:
+- **Server URL**: `https://personal-ai-study-os-staging.riyasaksena502.workers.dev/mcp`
+- **Client ID**: `gemini-spark` (or configured `SPARK_CLIENT_ID`)
+- **Client Secret**: `personal-study-os-spark-secret` (or configured `SPARK_CLIENT_SECRET`)
+- **Redirect URI**: Provided by Gemini via "Copy redirect URI" button (pre-authorized for `*.google.com` / `*.googleusercontent.com` domains)
+- **Requested Scopes**: `read write`
 
 ---
 
@@ -319,15 +349,17 @@ Spark must receive ONLY the minimal set of capabilities necessary for its schedu
 
 | Verification Category | Suite / Check | Result |
 | :--- | :--- | :--- |
-| **Unit & Integration Tests** | `tests/mcp.test.ts` (24 tests) | **PASSED** (100%) |
-| **Domain & Service Tests** | `tests/personal-state-service.test.ts` (27 tests) | **PASSED** (100%) |
-| **Security & Boundary Tests** | `tests/security.test.ts` (44 tests) | **PASSED** (100%) |
-| **Monorepo Test Suite** | 20 test files (290 tests total) | **PASSED (290/290)** |
+| **OAuth 2.0 & Security Suite** | `tests/oauth.test.ts` (20 tests) | **PASSED (20/20)** |
+| **MCP Semantic Tools Suite** | `tests/mcp.test.ts` (24 tests) | **PASSED (24/24)** |
+| **Domain & Service Tests** | `tests/personal-state-service.test.ts` (27 tests) | **PASSED (27/27)** |
+| **Security & Boundary Tests** | `tests/security.test.ts` (44 tests) | **PASSED (44/44)** |
+| **Complete Monorepo Test Suite**| 21 test files (310 tests total) | **PASSED (310/310, 100%)** |
 | **Typecheck** | `npm run typecheck` (`tsc --noEmit`) | **CLEAN** (0 errors) |
 | **Lint** | `npm run lint` | **PASSED** |
 | **Build** | `npm run build` | **CLEAN** |
-| **Staging Deployment** | Cloudflare Workers Staging (Wrangler deploy) | **DEPLOYED (Version c7f904b9)** |
+| **Staging Deployment** | Cloudflare Workers Staging | **STAGING DEPLOYED** |
+| **OAuth Discovery Verification** | `GET /.well-known/oauth-authorization-server` | **200 OK (RFC 8414 metadata)** |
+| **Resource Metadata Verification**| `GET /.well-known/oauth-protected-resource` | **200 OK (RFC 9728 metadata)** |
 | **Staging Reachability** | `GET /health` | **200 OK (Healthy)** |
-| **Staging Security Gate** | `POST /mcp` without token | **401 Unauthorized (Blocked)** |
-| **Staging Security Gate** | `POST /mcp` with invalid token | **401 Unauthorized (Blocked)** |
+| **Staging Status Invariant** | `GET /v1/status` | **200 OK (System v1.2.3 online)** |
 | **Production Release Lock** | `v1.2.3` Release Tag | **UNTOUCHED & FROZEN** |

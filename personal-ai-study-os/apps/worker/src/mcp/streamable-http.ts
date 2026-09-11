@@ -11,6 +11,33 @@ export const MCP_ALLOWED_AUDIENCES = [
   'personal-study-os-api',
 ];
 
+function getOrigin(c: any): string {
+  try {
+    const url = new URL(c.req.url);
+    return url.origin;
+  } catch {
+    return 'https://personal-ai-study-os-staging.riyasaksena502.workers.dev';
+  }
+}
+
+function make401Response(c: any, message: string): Response {
+  const origin = getOrigin(c);
+  return c.json(
+    {
+      error: {
+        code: 'UNAUTHORIZED',
+        category: 'authorization',
+        message,
+      },
+    },
+    401,
+    {
+      'WWW-Authenticate': `Bearer realm="personal-ai-study-os", resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+      Link: `<${origin}/.well-known/oauth-protected-resource>; rel="oauth-protected-resource"`,
+    }
+  );
+}
+
 /**
  * Authenticates an incoming MCP request using OAuth 2.1 Bearer tokens.
  * Enforces mandatory audience check against MCP_ALLOWED_AUDIENCES.
@@ -29,15 +56,9 @@ async function authenticateMcpRequest(
     if (env?.ENVIRONMENT !== 'test') {
       return {
         success: false,
-        errorResponse: c.json(
-          {
-            error: {
-              code: 'UNAUTHORIZED',
-              category: 'authorization',
-              message: 'Unauthorized: SKIP_AUTH is only permitted in test environment',
-            },
-          },
-          401
+        errorResponse: make401Response(
+          c,
+          'Unauthorized: SKIP_AUTH is only permitted in test environment'
         ),
       };
     }
@@ -54,15 +75,9 @@ async function authenticateMcpRequest(
   if (!tokenStr) {
     return {
       success: false,
-      errorResponse: c.json(
-        {
-          error: {
-            code: 'UNAUTHORIZED',
-            category: 'authorization',
-            message: 'Unauthorized: Missing Bearer token in Authorization header',
-          },
-        },
-        401
+      errorResponse: make401Response(
+        c,
+        'Unauthorized: Missing Bearer token in Authorization header'
       ),
     };
   }
@@ -148,15 +163,9 @@ async function authenticateMcpRequest(
     }
     return {
       success: false,
-      errorResponse: c.json(
-        {
-          error: {
-            code: 'UNAUTHORIZED',
-            category: 'authorization',
-            message: err.message || 'Unauthorized',
-          },
-        },
-        401
+      errorResponse: make401Response(
+        c,
+        err.message || 'Unauthorized'
       ),
     };
   }
@@ -168,7 +177,8 @@ async function authenticateMcpRequest(
 async function processJsonRpcMessage(
   msg: any,
   userScopes: string[],
-  env: Env
+  env: Env,
+  claims?: TokenClaims
 ): Promise<any> {
   const { id, method, params } = msg;
 
@@ -199,8 +209,19 @@ async function processJsonRpcMessage(
     return null; // Notification, no response required
   }
 
+  const isGeminiSpark =
+    (claims as any)?.client_id === 'gemini-spark' ||
+    (claims as any)?.client_id === 'gemini' ||
+    claims?.sub === 'gemini-spark';
+
   if (method === 'tools/list') {
-    const tools = listMcpTools();
+    let tools = listMcpTools();
+    if (isGeminiSpark) {
+      // Expose strictly get_study_state and record_schedule_decision (Section 6)
+      tools = tools.filter(
+        (t) => t.name === 'get_study_state' || t.name === 'record_schedule_decision'
+      );
+    }
     return {
       jsonrpc: '2.0',
       id,
@@ -211,6 +232,22 @@ async function processJsonRpcMessage(
   if (method === 'tools/call') {
     const toolName = params?.name;
     const toolArgs = params?.arguments ?? {};
+
+    if (
+      isGeminiSpark &&
+      toolName !== 'get_study_state' &&
+      toolName !== 'record_schedule_decision'
+    ) {
+      return {
+        jsonrpc: '2.0',
+        id,
+        error: {
+          code: -32000,
+          message: `Forbidden: Tool '${toolName}' is not permitted for Gemini Spark client. Allowed tools: get_study_state, record_schedule_decision`,
+        },
+      };
+    }
+
     try {
       const toolResult = await executeMcpTool(toolName, toolArgs, userScopes, env);
       return {
@@ -243,6 +280,45 @@ async function processJsonRpcMessage(
 // ============================================================================
 // MCP 2026-07-28 Streamable HTTP (Primary Remote Transport)
 // ============================================================================
+mcpRouter.get('/mcp', async (c) => {
+  const accept = c.req.header('accept') || c.req.header('Accept') || '';
+  if (accept.includes('text/event-stream')) {
+    const auth = await authenticateMcpRequest(c, c.env);
+    if (!auth.success) {
+      return auth.errorResponse!;
+    }
+
+    const sessionId = crypto.randomUUID();
+    const endpointMessage = `event: endpoint\ndata: /mcp/messages?sessionId=${sessionId}\n\n`;
+
+    return new Response(endpointMessage, {
+      headers: {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      },
+    });
+  }
+
+  // Non-SSE GET probe: check authentication
+  const auth = await authenticateMcpRequest(c, c.env);
+  if (!auth.success) {
+    return auth.errorResponse!;
+  }
+
+  // Authenticated probe: return server info & capabilities
+  return c.json({
+    name: 'personal-ai-study-os',
+    version: '1.2.3',
+    protocolVersion: '2026-07-28',
+    capabilities: {
+      tools: {
+        listChanged: false,
+      },
+    },
+  });
+});
+
 mcpRouter.post('/mcp', async (c) => {
   const auth = await authenticateMcpRequest(c, c.env);
   if (!auth.success) {
@@ -271,7 +347,7 @@ mcpRouter.post('/mcp', async (c) => {
   const responses = [];
 
   for (const req of requests) {
-    const resp = await processJsonRpcMessage(req, scopes, c.env);
+    const resp = await processJsonRpcMessage(req, scopes, c.env, auth.claims);
     if (resp !== null) {
       responses.push(resp);
     }
@@ -357,7 +433,7 @@ mcpRouter.post('/mcp/messages', async (c) => {
     );
   }
 
-  const response = await processJsonRpcMessage(body, scopes, c.env);
+  const response = await processJsonRpcMessage(body, scopes, c.env, auth.claims);
   return c.json(response ?? { jsonrpc: '2.0', result: 'ack' }, 200);
 });
 
@@ -384,7 +460,7 @@ mcpRouter.post('/sse/messages', async (c) => {
     );
   }
 
-  const response = await processJsonRpcMessage(body, scopes, c.env);
+  const response = await processJsonRpcMessage(body, scopes, c.env, auth.claims);
   return c.json(response ?? { jsonrpc: '2.0', result: 'ack' }, 200);
 });
 
