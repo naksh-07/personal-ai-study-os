@@ -96,4 +96,5 @@ crons = ["* * * * *", "0 */6 * * *"]
 
 [env.production.vars]
 ENVIRONMENT = "production"
+AUTH_ISSUER = "personal-study-os-api"
 

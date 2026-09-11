@@ -141,13 +141,24 @@ export function validateClient(
     return false;
   }
 
-  // If a client secret is configured or passed, validate it
-  const expectedSecret = env?.SPARK_CLIENT_SECRET || 'personal-study-os-spark-secret';
+  // In non-development environments, client_secret is mandatory (no 'none' auth method)
+  const isDev = env?.ENVIRONMENT === 'development' || env?.ENVIRONMENT === 'test';
+  if (!isDev && clientSecret === undefined) {
+    return false;
+  }
+
+  // If a client secret is provided, validate it
   if (clientSecret !== undefined) {
+    const expectedSecret = isDev
+      ? (env?.SPARK_CLIENT_SECRET || 'personal-study-os-spark-secret')
+      : env?.SPARK_CLIENT_SECRET;
+    if (!expectedSecret) {
+      return false; // Fail closed: no configured secret in non-dev
+    }
     return constantTimeEqual(clientSecret, expectedSecret);
   }
 
-  // If no secret provided (e.g. public PKCE client), client_id check was sufficient
+  // Dev/test environment: client_id check was sufficient for public PKCE clients
   return true;
 }
 
@@ -161,10 +172,10 @@ const handleOAuthServerMetadata = (c: Context<AppContext>) => {
       issuer: origin,
       authorization_endpoint: `${origin}/oauth/authorize`,
       token_endpoint: `${origin}/oauth/token`,
-      token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post', 'none'],
+      token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
       grant_types_supported: ['authorization_code', 'refresh_token'],
       response_types_supported: ['code'],
-      code_challenge_methods_supported: ['S256', 'plain'],
+      code_challenge_methods_supported: ['S256'],
       scopes_supported: ['read', 'write'],
       service_documentation: `${origin}/docs`,
     },
@@ -267,7 +278,16 @@ oauthRoutes.get('/oauth/authorize', async (c) => {
   }
 
   // 5. Generate tamper-proof signed authorization code
-  const jwtSecret = c.env?.JWT_SECRET || 'personal_ai_study_os_development_secret_only';
+  const isDev = c.env?.ENVIRONMENT === 'development' || c.env?.ENVIRONMENT === 'test';
+  const jwtSecret = isDev
+    ? (c.env?.JWT_SECRET || 'personal_ai_study_os_development_secret_only')
+    : c.env?.JWT_SECRET;
+  if (!jwtSecret) {
+    return c.json(
+      { error: 'server_error', error_description: 'Server authentication secret is unconfigured' },
+      500
+    );
+  }
   const nowSeconds = Math.floor(Date.now() / 1000);
   const codePayload = {
     typ: 'auth_code',
@@ -395,7 +415,16 @@ oauthRoutes.post('/oauth/token', async (c) => {
     );
   }
 
-  const jwtSecret = c.env?.JWT_SECRET || 'personal_ai_study_os_development_secret_only';
+  const isDev = c.env?.ENVIRONMENT === 'development' || c.env?.ENVIRONMENT === 'test';
+  const jwtSecret = isDev
+    ? (c.env?.JWT_SECRET || 'personal_ai_study_os_development_secret_only')
+    : c.env?.JWT_SECRET;
+  if (!jwtSecret) {
+    return c.json(
+      { error: 'server_error', error_description: 'Server authentication secret is unconfigured' },
+      500
+    );
+  }
   const origin = getOrigin(c);
   const issuer = c.env?.AUTH_ISSUER || origin;
   const nowSeconds = Math.floor(Date.now() / 1000);
