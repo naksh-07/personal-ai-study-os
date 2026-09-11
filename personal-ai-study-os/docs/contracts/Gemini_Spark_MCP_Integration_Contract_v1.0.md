@@ -287,13 +287,31 @@ To connect Gemini Spark to the Personal State Service without exposing secrets:
 
 ---
 
-## 8. Safety Guardrails for Autonomous Execution
+## 8. Safety Guardrails & Operational Ownership Conventions
 
+### 8.1 Safety Guardrails for Autonomous Execution
 To prevent rogue or excessive calendar rewriting:
 - **Scope Limit**: Spark should not modify more than 5 calendar events in a single scheduled execution.
 - **Minimal Mutation Rule**: Spark should prefer adjusting existing time blocks rather than recreating schedules from scratch.
 - **Historical Immutability**: Spark cannot delete past calendar events or erase completed chapter records.
 - **Idempotency Key Discipline**: Spark scheduled executions should use deterministic idempotency keys (e.g. `spark_sched_${date}_run_${runNumber}`).
+
+### 8.2 Task & Calendar Ownership Conventions
+- **Google Tasks (@default Tasklist)**: Gemini Spark integrates with the default task list (`@default`). Tasks managed by the Study OS are distinguished by the `[Study OS]` prefix in the title and/or metadata linkages in D1 `task_links`. Unrelated user tasks lack this identifier and must NEVER be modified, moved, or rescheduled.
+- **Google Calendar (Primary Calendar & [Study OS] Prefix)**: All study blocks created or adjusted by Spark on the user's primary calendar MUST include the `[Study OS]` prefix in the event title (e.g., `[Study OS] Deep Work: Pathology Revision`). Personal, work, and unrelated non-study events must NEVER be altered, overwritten, or cancelled.
+- **Conflict Avoidance Rule**: If an existing non-study event conflicts with a planned study window, Spark must find the next available free block rather than displacing the user's event.
+
+### 8.3 Minimum Spark Tool Surface
+Spark must receive ONLY the minimal set of capabilities necessary for its scheduling and reconciliation mandate:
+- **MCP READ**: `get_study_state`
+- **MCP WRITE**: `record_schedule_decision`
+- **Native Google Workspace**: Google Calendar, Google Tasks
+- **Strictly Prohibited Tools**: Spark must NOT be granted access to agent lifecycle tools, source ingestion tools, StudySourceCore tools, database administrative tools, or raw SQL query endpoints.
+
+### 8.4 Headless Autonomous Execution & Confirmation Analysis
+- **Read Pipeline**: Autonomous execution of `get_study_state`, Google Tasks reads, and Google Calendar reads operates headlessly without interactive friction.
+- **Write Pipeline**: In interactive Gemini sessions, write actions (`record_schedule_decision`, Calendar mutations) may display an interactive confirmation prompt. For headless scheduled routines, actions require pre-authorized permissions configured during routine setup.
+- **Verification Rule**: Antigravity verifies API endpoints, transport security, and schemas from the local environment, but does not claim end-to-end autonomous execution within proprietary Gemini Spark scheduling UI without human E2E validation.
 
 ---
 
