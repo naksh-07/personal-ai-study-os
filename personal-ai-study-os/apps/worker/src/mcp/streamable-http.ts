@@ -5,6 +5,26 @@ import { listMcpTools, executeMcpTool } from './server';
 
 export const mcpRouter = new Hono<AppContext>();
 
+// Global CORS Middleware for MCP routes (required for browser-based clients like gemini.google.com)
+mcpRouter.use('*', async (c, next) => {
+  await next();
+  c.header('Access-Control-Allow-Origin', '*');
+  c.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  c.header('Access-Control-Allow-Headers', 'Authorization, Content-Type, Accept, MCP-Protocol-Version, X-Correlation-ID');
+});
+
+// Preflight handler for all MCP endpoints
+mcpRouter.options('*', () => {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type, Accept, MCP-Protocol-Version, X-Correlation-ID',
+    },
+  });
+});
+
 export const MCP_ALLOWED_AUDIENCES = [
   'https://api.personal-os.com/mcp',
   'personal-ai-study-os',
@@ -32,6 +52,9 @@ function make401Response(c: any, message: string): Response {
     },
     401,
     {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type, Accept, MCP-Protocol-Version, X-Correlation-ID',
       'WWW-Authenticate': `Bearer realm="personal-ai-study-os", resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
       Link: `<${origin}/.well-known/oauth-protected-resource>; rel="oauth-protected-resource"`,
     }
@@ -183,11 +206,12 @@ async function processJsonRpcMessage(
   const { id, method, params } = msg;
 
   if (method === 'initialize') {
+    const clientProtocol = params?.protocolVersion || '2024-11-05';
     return {
       jsonrpc: '2.0',
       id,
       result: {
-        protocolVersion: '2026-07-28',
+        protocolVersion: clientProtocol,
         capabilities: {
           tools: {
             listChanged: false,
@@ -464,14 +488,3 @@ mcpRouter.post('/sse/messages', async (c) => {
   return c.json(response ?? { jsonrpc: '2.0', result: 'ack' }, 200);
 });
 
-// CORS Preflight for MCP
-mcpRouter.options('/mcp', (c) => {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Authorization, Content-Type, Accept',
-    },
-  });
-});
