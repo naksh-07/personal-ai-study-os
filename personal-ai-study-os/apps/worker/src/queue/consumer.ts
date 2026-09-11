@@ -88,7 +88,7 @@ export async function dispatchToProviderAdapter(
       });
       const tasklistId = p.tasklistId ?? p.tasklist_id ?? '@default';
       if (operation === 'create' || operation === 'sync') {
-        await adapter.createTask({
+        const result = await adapter.createTask({
           tasklistId,
           entityType: envelope.entityType,
           entityId,
@@ -99,6 +99,34 @@ export async function dispatchToProviderAdapter(
           status: p.status,
           createdAt: envelope.enqueuedAt,
         });
+
+        if (result.task?.id && env.DB) {
+          const taskLinkId = p.taskLinkId || `tasklink_${envelope.idempotencyKey.replace(/[^a-zA-Z0-9_]/g, '')}`;
+          const entityType = envelope.entityType === 'project' ? 'project' : 'chapter';
+          await env.DB.prepare(
+            `INSERT INTO task_links (
+               id, provider, tasklist_id, task_id, entity_type, entity_id,
+               title_snapshot, status_snapshot, last_synced_at, created_at, updated_at
+             ) VALUES (?, 'google_tasks', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             ON CONFLICT(provider, tasklist_id, task_id) DO UPDATE SET
+               entity_type = excluded.entity_type,
+               entity_id = excluded.entity_id,
+               title_snapshot = excluded.title_snapshot,
+               status_snapshot = excluded.status_snapshot,
+               last_synced_at = CURRENT_TIMESTAMP,
+               updated_at = CURRENT_TIMESTAMP`
+          )
+            .bind(
+              taskLinkId,
+              tasklistId,
+              result.task.id,
+              entityType,
+              entityId,
+              result.task.title ?? p.title ?? 'Untitled Task',
+              result.task.status ?? p.status ?? 'needsAction'
+            )
+            .run();
+        }
       } else if (operation === 'update') {
         const taskId = p.taskId ?? p.task_id ?? entityId;
         await adapter.updateTask({
@@ -120,7 +148,7 @@ export async function dispatchToProviderAdapter(
       });
       const calendarId = p.calendarId ?? p.calendar_id ?? 'primary';
       if (operation === 'create' || operation === 'sync') {
-        await adapter.createEvent({
+        const result = await adapter.createEvent({
           calendarId,
           idempotencyKey,
           summary: p.summary ?? p.title ?? 'Untitled Event',
@@ -128,6 +156,61 @@ export async function dispatchToProviderAdapter(
           start: p.start ?? { dateTime: p.startsAt ?? new Date().toISOString() },
           end: p.end ?? { dateTime: p.endsAt ?? new Date(Date.now() + 3600000).toISOString() },
         });
+
+        if (result.event?.id && env.DB) {
+          const callinkId = p.calendarLinkId || `callink_${envelope.idempotencyKey.replace(/[^a-zA-Z0-9_]/g, '')}`;
+          const entityType = envelope.entityType === 'task' ? 'task' : 'study_session';
+          const startsAt = result.event.start?.dateTime ?? result.event.start?.date ?? p.startsAt ?? new Date().toISOString();
+          const endsAt = result.event.end?.dateTime ?? result.event.end?.date ?? p.endsAt ?? new Date(Date.now() + 3600000).toISOString();
+          const statusSnapshot = (result.event.status === 'confirmed' || result.event.status === 'tentative' || result.event.status === 'cancelled')
+            ? result.event.status
+            : 'confirmed';
+
+          await env.DB.prepare(
+            `INSERT INTO calendar_links (
+               id, provider, calendar_id, event_id, entity_type, entity_id,
+               title_snapshot, starts_at, ends_at, status_snapshot, last_synced_at, created_at, updated_at
+             ) VALUES (?, 'google_calendar', ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             ON CONFLICT(provider, calendar_id, event_id) DO UPDATE SET
+               entity_type = excluded.entity_type,
+               entity_id = excluded.entity_id,
+               title_snapshot = excluded.title_snapshot,
+               starts_at = excluded.starts_at,
+               ends_at = excluded.ends_at,
+               status_snapshot = excluded.status_snapshot,
+               last_synced_at = CURRENT_TIMESTAMP,
+               updated_at = CURRENT_TIMESTAMP`
+          )
+            .bind(
+              callinkId,
+              calendarId,
+              result.event.id,
+              entityType,
+              entityId,
+              result.event.summary ?? p.summary ?? 'Untitled Event',
+              startsAt,
+              endsAt,
+              statusSnapshot
+            )
+            .run();
+
+          if (p.taskLinkId) {
+            const schedlinkId = `schedlink_${envelope.idempotencyKey.replace(/[^a-zA-Z0-9_]/g, '')}`;
+            await env.DB.prepare(
+              `INSERT INTO schedule_links (
+                 id, task_id, calendar_event_id, relationship_type, created_at, updated_at
+               ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+               ON CONFLICT(id) DO NOTHING`
+            )
+              .bind(
+                schedlinkId,
+                p.taskLinkId,
+                callinkId,
+                p.relationshipType ?? 'session_for_task'
+              )
+              .run();
+          }
+        }
       } else if (operation === 'update') {
         const eventId = p.eventId ?? p.event_id ?? entityId;
         await adapter.updateEvent({

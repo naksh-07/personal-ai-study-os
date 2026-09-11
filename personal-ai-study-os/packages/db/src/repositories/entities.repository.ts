@@ -12,6 +12,7 @@ import {
   ResearchEvent,
   TaskLink,
   CalendarLink,
+  ScheduleLink,
   Source,
   SourceChapter,
   SourceMapping,
@@ -427,6 +428,35 @@ export class EntitiesRepository {
     }));
   }
 
+  static async upsertTaskLink(db: Kysely<Database>, link: TaskLink) {
+    return await db
+      .insertInto('task_links')
+      .values({
+        id: link.id,
+        provider: link.provider,
+        tasklist_id: link.tasklistId,
+        task_id: link.taskId,
+        entity_type: link.entityType,
+        entity_id: link.entityId,
+        title_snapshot: link.titleSnapshot ?? null,
+        status_snapshot: link.statusSnapshot ?? null,
+        last_synced_at: link.lastSyncedAt ?? null,
+        created_at: link.createdAt,
+        updated_at: link.updatedAt,
+      })
+      .onConflict((oc) =>
+        oc.columns(['provider', 'tasklist_id', 'task_id']).doUpdateSet({
+          entity_type: link.entityType,
+          entity_id: link.entityId,
+          title_snapshot: link.titleSnapshot ?? null,
+          status_snapshot: link.statusSnapshot ?? null,
+          last_synced_at: link.lastSyncedAt ?? null,
+          updated_at: link.updatedAt,
+        })
+      )
+      .execute();
+  }
+
   // Calendar Links
   static async insertCalendarLink(db: Kysely<Database>, link: CalendarLink) {
     return await db
@@ -446,6 +476,39 @@ export class EntitiesRepository {
         created_at: link.createdAt,
         updated_at: link.updatedAt,
       })
+      .execute();
+  }
+
+  static async upsertCalendarLink(db: Kysely<Database>, link: CalendarLink) {
+    return await db
+      .insertInto('calendar_links')
+      .values({
+        id: link.id,
+        provider: link.provider,
+        calendar_id: link.calendarId,
+        event_id: link.eventId,
+        entity_type: link.entityType,
+        entity_id: link.entityId,
+        title_snapshot: link.titleSnapshot ?? null,
+        starts_at: link.startsAt,
+        ends_at: link.endsAt,
+        status_snapshot: link.statusSnapshot ?? null,
+        last_synced_at: link.lastSyncedAt ?? null,
+        created_at: link.createdAt,
+        updated_at: link.updatedAt,
+      })
+      .onConflict((oc) =>
+        oc.columns(['provider', 'calendar_id', 'event_id']).doUpdateSet({
+          entity_type: link.entityType,
+          entity_id: link.entityId,
+          title_snapshot: link.titleSnapshot ?? null,
+          starts_at: link.startsAt,
+          ends_at: link.endsAt,
+          status_snapshot: link.statusSnapshot ?? null,
+          last_synced_at: link.lastSyncedAt ?? null,
+          updated_at: link.updatedAt,
+        })
+      )
       .execute();
   }
 
@@ -470,6 +533,44 @@ export class EntitiesRepository {
       endsAt: row.ends_at,
       statusSnapshot: row.status_snapshot,
       lastSyncedAt: row.last_synced_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  // Schedule Links
+  static async insertScheduleLink(db: Kysely<Database>, link: ScheduleLink) {
+    return await db
+      .insertInto('schedule_links')
+      .values({
+        id: link.id,
+        task_id: link.taskId,
+        calendar_event_id: link.calendarEventId,
+        relationship_type: link.relationshipType,
+        created_at: link.createdAt,
+        updated_at: link.updatedAt,
+      })
+      .execute();
+  }
+
+  static async getScheduleLinks(
+    db: Kysely<Database>,
+    taskId?: string,
+    calendarEventId?: string
+  ): Promise<ScheduleLink[]> {
+    let query = db.selectFrom('schedule_links').selectAll();
+    if (taskId) {
+      query = query.where('task_id', '=', taskId);
+    }
+    if (calendarEventId) {
+      query = query.where('calendar_event_id', '=', calendarEventId);
+    }
+    const rows = await query.orderBy('created_at', 'desc').execute();
+    return rows.map(row => ({
+      id: row.id,
+      taskId: row.task_id,
+      calendarEventId: row.calendar_event_id,
+      relationshipType: row.relationship_type,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));

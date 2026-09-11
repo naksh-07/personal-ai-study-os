@@ -761,6 +761,15 @@ export const LinkCalendarEventInputSchema = z.object({
 });
 export type LinkCalendarEventInput = z.input<typeof LinkCalendarEventInputSchema>;
 
+export const LinkScheduleInputSchema = z.object({
+  taskId: z.string().startsWith('tasklink_'),
+  calendarEventId: z.string().startsWith('callink_'),
+  relationshipType: ScheduleLinkRelationshipTypeSchema.default('session_for_task'),
+  correlationId: z.string().optional(),
+  causationId: z.string().optional(),
+});
+export type LinkScheduleInput = z.input<typeof LinkScheduleInputSchema>;
+
 // ============================================================================
 // 9. QUEUE MESSAGE ENVELOPE (Spec v1.2.3 Section 8.3)
 // ============================================================================

@@ -142,3 +142,19 @@ mutationsRoutes.post('/links/calendar', async (c) => {
 
   return formatMutationResponse(c, result, 201);
 });
+
+// 8. Link Schedule
+mutationsRoutes.post('/links/schedule', async (c) => {
+  const idempotencyKey = c.req.header('idempotency-key') || c.req.header('Idempotency-Key');
+  const body = await c.req.json();
+  const correlationId = c.get('correlationId');
+
+  const service = new PersonalStateService(c.env.DB, createKyselyD1(c.env.DB));
+  const result = await service.linkSchedule(
+    { ...body, correlationId: body.correlationId || correlationId },
+    { key: idempotencyKey, sourceSystem: 'rest', requestPayload: body }
+  );
+
+  return formatMutationResponse(c, result, 201);
+});
+

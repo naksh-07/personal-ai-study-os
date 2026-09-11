@@ -471,4 +471,209 @@ describe('Slice 4: End-to-End Production Integration Suite', () => {
       expect(idempRecord?.status).toBe('COMPLETED');
     });
   });
+
+  // ==========================================================================
+  // E2E 5: Tasks, Calendar & Schedule Link External Coordination Lifecycle
+  // ==========================================================================
+  describe('E2E Provider Linking & Relationship Coordination', () => {
+    it('creates external task, persists task_links, creates calendar event, persists calendar_links, and coordinates schedule_links idempotently', async () => {
+      const now = new Date().toISOString();
+      const taskJobId = generateId('sync');
+      const taskLinkId = 'tasklink_e2e_coord_1';
+      const taskIdempKey = 'idemp_tasks_e2e_coord_1';
+
+      // 1. Enqueue and process Google Tasks mutation
+      const taskEnvelope: QueueMessageEnvelope = {
+        jobId: taskJobId,
+        idempotencyKey: taskIdempKey,
+        targetSystem: 'google_tasks',
+        entityType: 'chapter',
+        entityId: testChapterId,
+        operation: 'create',
+        schemaVersion: 1,
+        payload: {
+          taskLinkId,
+          title: 'Carbohydrate Metabolism Study Task',
+          tasklistId: '@default',
+          due: '2026-09-15T00:00:00.000Z',
+        },
+        enqueuedAt: now,
+      };
+
+      await ctx.db
+        .insertInto('sync_jobs')
+        .values({
+          job_id: taskJobId,
+          idempotency_key: taskIdempKey,
+          target_system: 'google_tasks',
+          entity_type: 'chapter',
+          entity_id: testChapterId,
+          operation: 'create',
+          payload_json: JSON.stringify(taskEnvelope.payload),
+          status: 'PENDING',
+          attempt_count: 0,
+          created_at: now,
+          updated_at: now,
+        })
+        .execute();
+
+      // Mock Google Tasks API response
+      global.fetch = vi.fn(async (url: any, opts: any) => {
+        const urlStr = String(url);
+        if (opts?.method === 'GET' || !opts?.method) {
+          return new Response(JSON.stringify({ items: [] }), { status: 200 });
+        }
+        if (opts?.method === 'POST') {
+          return new Response(
+            JSON.stringify({
+              id: 'gtask_remote_e2e_777',
+              title: 'Carbohydrate Metabolism Study Task',
+              status: 'needsAction',
+            }),
+            { status: 200 }
+          );
+        }
+        return new Response('Not found', { status: 404 });
+      }) as any;
+
+      const taskMsg = makeMockMessage(taskEnvelope);
+      await processQueueBatch(makeMockBatch([taskMsg]) as any, { DB: ctx.d1 });
+      expect(taskMsg.ack).toHaveBeenCalled();
+
+      // Verify task_links persisted in D1
+      const savedTaskLink = await ctx.db
+        .selectFrom('task_links')
+        .selectAll()
+        .where('task_id', '=', 'gtask_remote_e2e_777')
+        .executeTakeFirst();
+
+      expect(savedTaskLink).toBeDefined();
+      expect(savedTaskLink?.provider).toBe('google_tasks');
+      expect(savedTaskLink?.entity_id).toBe(testChapterId);
+      expect(savedTaskLink?.title_snapshot).toBe('Carbohydrate Metabolism Study Task');
+      expect(savedTaskLink?.status_snapshot).toBe('needsAction');
+
+      // 2. Enqueue and process Google Calendar mutation
+      const calJobId = generateId('sync');
+      const calLinkId = 'callink_e2e_coord_1';
+      const calIdempKey = 'idemp_calendar_e2e_coord_1';
+      const startsAt = '2026-09-15T10:00:00.000Z';
+      const endsAt = '2026-09-15T11:30:00.000Z';
+
+      const calEnvelope: QueueMessageEnvelope = {
+        jobId: calJobId,
+        idempotencyKey: calIdempKey,
+        targetSystem: 'google_calendar',
+        entityType: 'task',
+        entityId: 'sess_e2e_coord_1',
+        operation: 'create',
+        schemaVersion: 1,
+        payload: {
+          calendarLinkId: calLinkId,
+          taskLinkId: savedTaskLink!.id,
+          summary: 'Metabolism Deep Work Session',
+          startsAt,
+          endsAt,
+          relationshipType: 'session_for_task',
+        },
+        enqueuedAt: now,
+      };
+
+      await ctx.db
+        .insertInto('sync_jobs')
+        .values({
+          job_id: calJobId,
+          idempotency_key: calIdempKey,
+          target_system: 'google_calendar',
+          entity_type: 'task',
+          entity_id: 'sess_e2e_coord_1',
+          operation: 'create',
+          payload_json: JSON.stringify(calEnvelope.payload),
+          status: 'PENDING',
+          attempt_count: 0,
+          created_at: now,
+          updated_at: now,
+        })
+        .execute();
+
+      // Mock Google Calendar API response
+      global.fetch = vi.fn(async (url: any, opts: any) => {
+        if (opts?.method === 'POST') {
+          return new Response(
+            JSON.stringify({
+              id: 'gcal_remote_e2e_888',
+              summary: 'Metabolism Deep Work Session',
+              status: 'confirmed',
+              start: { dateTime: startsAt },
+              end: { dateTime: endsAt },
+            }),
+            { status: 200 }
+          );
+        }
+        return new Response('Not found', { status: 404 });
+      }) as any;
+
+      const calMsg = makeMockMessage(calEnvelope);
+      await processQueueBatch(makeMockBatch([calMsg]) as any, { DB: ctx.d1 });
+      expect(calMsg.ack).toHaveBeenCalled();
+
+      // Verify calendar_links persisted in D1
+      const savedCalLink = await ctx.db
+        .selectFrom('calendar_links')
+        .selectAll()
+        .where('event_id', '=', 'gcal_remote_e2e_888')
+        .executeTakeFirst();
+
+      expect(savedCalLink).toBeDefined();
+      expect(savedCalLink?.provider).toBe('google_calendar');
+      expect(savedCalLink?.title_snapshot).toBe('Metabolism Deep Work Session');
+      expect(savedCalLink?.status_snapshot).toBe('confirmed');
+
+      // Verify schedule_links persisted automatically through queue payload linkage
+      const savedSchedLink = await ctx.db
+        .selectFrom('schedule_links')
+        .selectAll()
+        .where('task_id', '=', savedTaskLink!.id)
+        .where('calendar_event_id', '=', savedCalLink!.id)
+        .executeTakeFirst();
+
+      expect(savedSchedLink).toBeDefined();
+      expect(savedSchedLink?.relationship_type).toBe('session_for_task');
+
+      // 3. Test explicit REST Mutation /v1/links/schedule route
+      const scheduleRes = await app.request('/v1/links/schedule', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${writeToken}`,
+          'Idempotency-Key': 'idemp_rest_schedule_link_1',
+        },
+        body: JSON.stringify({
+          taskId: savedTaskLink!.id,
+          calendarEventId: savedCalLink!.id,
+          relationshipType: 'session_for_task',
+        }),
+      }, {
+        DB: ctx.d1,
+        ENVIRONMENT: 'test',
+        JWT_SECRET: testSecret,
+      });
+
+      // Since relationship was already inserted, it safely replays with 200 OK
+      expect(scheduleRes.status).toBe(200);
+      const scheduleJson: any = await scheduleRes.json();
+      expect(scheduleJson.data.replayed).toBe(true);
+
+      // Verify no duplicate schedule links were created
+      const allSchedLinks = await ctx.db
+        .selectFrom('schedule_links')
+        .selectAll()
+        .where('task_id', '=', savedTaskLink!.id)
+        .where('calendar_event_id', '=', savedCalLink!.id)
+        .execute();
+
+      expect(allSchedLinks.length).toBe(1);
+    });
+  });
 });
+

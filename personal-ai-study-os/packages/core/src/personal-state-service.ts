@@ -37,6 +37,8 @@ import {
   LinkTaskInputSchema,
   LinkCalendarEventInput,
   LinkCalendarEventInputSchema,
+  LinkScheduleInput,
+  LinkScheduleInputSchema,
   generateId,
   deriveAccuracy,
   NotFoundError,
@@ -1211,6 +1213,54 @@ export class PersonalStateService {
         operation: 'link_calendar_event',
         entityId: calendarLinkId,
         data: { calendarLinkId, eventId: input.eventId },
+      };
+    });
+  }
+
+  /**
+   * 19. link_schedule:
+   * Establish linkage between an existing task link and a calendar event link in schedule_links.
+   */
+  async linkSchedule(
+    rawInput: LinkScheduleInput,
+    idempotency?: IdempotencyContext
+  ): Promise<MutationResult> {
+    const input = LinkScheduleInputSchema.parse(rawInput);
+
+    return this.withIdempotency('link_schedule', idempotency, input, async () => {
+      // Check if relationship already exists
+      const existing = await EntitiesRepository.getScheduleLinks(
+        this.db,
+        input.taskId,
+        input.calendarEventId
+      );
+      if (existing.length > 0) {
+        return {
+          success: true,
+          operation: 'link_schedule',
+          entityId: existing[0].id,
+          replayed: true,
+          data: { scheduleLinkId: existing[0].id, taskId: input.taskId, calendarEventId: input.calendarEventId },
+        };
+      }
+
+      const scheduleLinkId = generateId('schedlink');
+      const now = new Date().toISOString();
+
+      await EntitiesRepository.insertScheduleLink(this.db, {
+        id: scheduleLinkId,
+        taskId: input.taskId,
+        calendarEventId: input.calendarEventId,
+        relationshipType: input.relationshipType,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      return {
+        success: true,
+        operation: 'link_schedule',
+        entityId: scheduleLinkId,
+        data: { scheduleLinkId, taskId: input.taskId, calendarEventId: input.calendarEventId },
       };
     });
   }
