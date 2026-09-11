@@ -119,6 +119,7 @@ export interface IGoogleTasksAdapter {
   getTask(tasklistId: string, taskId: string): Promise<GoogleTask | null>;
   createTask(params: CreateTaskParams): Promise<{ created: boolean; adopted: boolean; task: GoogleTask }>;
   updateTask(params: UpdateTaskParams): Promise<{ updated: boolean; task: GoogleTask }>;
+  deleteTask(tasklistId: string, taskId: string): Promise<boolean>;
 }
 
 // ============================================================================

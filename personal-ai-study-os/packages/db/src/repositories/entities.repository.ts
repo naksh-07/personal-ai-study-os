@@ -18,6 +18,7 @@ import {
   SourceMapping,
   MemoryFact,
   MemoryVersion,
+  AgentRun,
 } from '@personal-os/domain';
 
 export class EntitiesRepository {
@@ -757,6 +758,88 @@ export class EntitiesRepository {
       previousFact: row.previous_fact,
       newFact: row.new_fact,
       actorId: row.actor_id,
+      createdAt: row.created_at,
+    }));
+  }
+
+  // Agent Runs
+  static async insertAgentRun(db: Kysely<Database>, run: AgentRun) {
+    return await db
+      .insertInto('agent_runs')
+      .values({
+        id: run.id,
+        agent_name: run.agentName,
+        run_type: run.runType,
+        status: run.status,
+        started_at: run.startedAt,
+        completed_at: run.completedAt ?? null,
+        result_summary: run.resultSummary ?? null,
+        error_code: run.errorCode ?? null,
+        payload: run.payload ?? null,
+        created_at: run.createdAt,
+      })
+      .execute();
+  }
+
+  static async updateAgentRun(
+    db: Kysely<Database>,
+    id: string,
+    update: Partial<Omit<AgentRun, 'id' | 'createdAt'>>
+  ) {
+    const patch: Record<string, any> = {};
+    if (update.status !== undefined) patch.status = update.status;
+    if (update.completedAt !== undefined) patch.completed_at = update.completedAt;
+    if (update.resultSummary !== undefined) patch.result_summary = update.resultSummary;
+    if (update.errorCode !== undefined) patch.error_code = update.errorCode;
+    if (update.payload !== undefined) patch.payload = update.payload;
+
+    return await db
+      .updateTable('agent_runs')
+      .set(patch)
+      .where('id', '=', id)
+      .execute();
+  }
+
+  static async getAgentRun(db: Kysely<Database>, id: string): Promise<AgentRun | null> {
+    const row = await db.selectFrom('agent_runs').selectAll().where('id', '=', id).executeTakeFirst();
+    if (!row) return null;
+    return {
+      id: row.id,
+      agentName: row.agent_name,
+      runType: row.run_type,
+      status: row.status as any,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+      resultSummary: row.result_summary,
+      errorCode: row.error_code,
+      payload: row.payload,
+      createdAt: row.created_at,
+    };
+  }
+
+  static async getRecentAgentRuns(
+    db: Kysely<Database>,
+    params?: { agentName?: string; limit?: number }
+  ): Promise<AgentRun[]> {
+    let query = db.selectFrom('agent_runs').selectAll();
+    if (params?.agentName) {
+      query = query.where('agent_name', '=', params.agentName);
+    }
+    const rows = await query
+      .orderBy('started_at', 'desc')
+      .limit(params?.limit ?? 20)
+      .execute();
+
+    return rows.map((row) => ({
+      id: row.id,
+      agentName: row.agent_name,
+      runType: row.run_type,
+      status: row.status as any,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+      resultSummary: row.result_summary,
+      errorCode: row.error_code,
+      payload: row.payload,
       createdAt: row.created_at,
     }));
   }

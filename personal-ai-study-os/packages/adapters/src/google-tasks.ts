@@ -520,4 +520,46 @@ export class GoogleTasksAdapter implements IGoogleTasksAdapter {
       task: updatedTask,
     };
   }
+
+  /**
+   * Deletes an individual task by ID via direct Google Tasks API.
+   * Treats 404 as success (idempotent delete).
+   */
+  async deleteTask(tasklistId: string, taskId: string): Promise<boolean> {
+    let res: Response;
+    try {
+      res = await this.fetchFn(
+        `${this.baseUrl}/tasks/v1/lists/${encodeURIComponent(tasklistId)}/tasks/${encodeURIComponent(taskId)}`,
+        {
+          method: 'DELETE',
+          headers: await this.getHeaders(),
+        }
+      );
+    } catch (netErr) {
+      throw new AmbiguousProviderError(`Google Tasks DELETE failed with network error`, {
+        cause: netErr,
+      });
+    }
+
+    if (res.status === 404) {
+      return true;
+    }
+
+    if (res.status === 401 && this.tokenProvider) {
+      this.tokenProvider.invalidate();
+      throw new ProviderRetryableError('Google Tasks API token expired or rejected (HTTP 401)');
+    }
+
+    if (res.status === 429 || res.status >= 500) {
+      throw new AmbiguousProviderError(`Google Tasks DELETE failed with HTTP ${res.status}`, {
+        status: res.status,
+      });
+    }
+
+    if (!res.ok && res.status !== 204) {
+      throw new Error(`Google Tasks DELETE failed with HTTP ${res.status}`);
+    }
+
+    return true;
+  }
 }

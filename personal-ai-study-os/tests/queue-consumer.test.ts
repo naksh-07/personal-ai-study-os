@@ -139,6 +139,93 @@ describe('Slice 4: Queue Consumer & Outbox Integration Test Suite', () => {
       expect(idemp?.status).toBe('COMPLETED');
     });
 
+    it('processes delete operation for google_tasks and purges task_link', async () => {
+      const jobId = generateId('sync');
+      const idempKey = 'idemp_delete_test_1';
+      const now = new Date().toISOString();
+
+      // Seed task link
+      await ctx.db
+        .insertInto('task_links')
+        .values({
+          id: 'tasklink_del_1',
+          provider: 'google_tasks',
+          tasklist_id: '@default',
+          task_id: 'gtask_del_1',
+          entity_type: 'chapter',
+          entity_id: 'chap_del_1',
+          title_snapshot: 'To Delete',
+          status_snapshot: 'needsAction',
+          last_synced_at: now,
+          created_at: now,
+          updated_at: now,
+        })
+        .execute();
+
+      // Seed PENDING delete job
+      await ctx.db
+        .insertInto('sync_jobs')
+        .values({
+          job_id: jobId,
+          idempotency_key: idempKey,
+          target_system: 'google_tasks',
+          entity_type: 'task',
+          entity_id: 'chap_del_1',
+          operation: 'delete',
+          payload_json: JSON.stringify({ tasklistId: '@default', taskId: 'gtask_del_1' }),
+          status: 'PENDING',
+          attempt_count: 0,
+          created_at: now,
+          updated_at: now,
+        })
+        .execute();
+
+      const envelope: QueueMessageEnvelope = {
+        jobId,
+        idempotencyKey: idempKey,
+        targetSystem: 'google_tasks',
+        entityType: 'task',
+        entityId: 'chap_del_1',
+        operation: 'delete',
+        schemaVersion: 1,
+        payload: { tasklistId: '@default', taskId: 'gtask_del_1' },
+        enqueuedAt: now,
+      };
+
+      const mockMsg = makeMockMessage(envelope);
+      const batch = makeMockBatch([mockMsg]);
+
+      let deleteFetchCalled = false;
+      global.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === 'DELETE') {
+          deleteFetchCalled = true;
+          return new Response(null, { status: 204 });
+        }
+        return new Response('Not Found', { status: 404 });
+      }) as any;
+
+      await processQueueBatch(batch as any, { DB: ctx.d1 });
+
+      expect(mockMsg.ack).toHaveBeenCalled();
+      expect(deleteFetchCalled).toBe(true);
+
+      // Verify task_link was purged
+      const link = await ctx.db
+        .selectFrom('task_links')
+        .selectAll()
+        .where('task_id', '=', 'gtask_del_1')
+        .executeTakeFirst();
+      expect(link).toBeUndefined();
+
+      // Verify sync_jobs completed
+      const job = await ctx.db
+        .selectFrom('sync_jobs')
+        .selectAll()
+        .where('job_id', '=', jobId)
+        .executeTakeFirst();
+      expect(job?.status).toBe('COMPLETED');
+    });
+
     it('preserves attempt_count (+0) and schedules exponential backoff on transient failure (Test B)', async () => {
       const jobId = generateId('sync');
       const idempKey = 'idemp_transient_test';

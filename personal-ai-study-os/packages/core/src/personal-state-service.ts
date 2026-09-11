@@ -44,6 +44,7 @@ import {
   NotFoundError,
   ConflictError,
   MathematicalConstraintError,
+  AgentRun,
 } from '@personal-os/domain';
 import { CanonicalEventEngine, CreateCanonicalEventInput } from './event-engine';
 import { AtomicWriter } from './atomic-writer';
@@ -692,6 +693,26 @@ export class PersonalStateService {
   }
 
   /**
+   * 9b. get_agent_state:
+   * Exposes machine execution state for an autonomous agent run.
+   */
+  async getAgentState(runId: string): Promise<AgentRun> {
+    const run = await EntitiesRepository.getAgentRun(this.db, runId);
+    if (!run) {
+      throw new NotFoundError('ENTITY_NOT_FOUND', `Agent run '${runId}' not found.`);
+    }
+    return run;
+  }
+
+  /**
+   * 9c. get_recent_agent_runs:
+   * Returns recent agent execution records.
+   */
+  async getRecentAgentRuns(agentName?: string, limit?: number): Promise<AgentRun[]> {
+    return await EntitiesRepository.getRecentAgentRuns(this.db, { agentName, limit });
+  }
+
+  /**
    * 10. get_sync_status:
    * Aggregated synchronization health without exposing secrets or credentials.
    */
@@ -766,6 +787,73 @@ export class PersonalStateService {
       const result = await AtomicWriter.ingestAndProjectAtomic(this.d1, this.db, {
         event: input,
       });
+
+      // Operational projections for agent lifecycle, checkpoints, and source registration
+      const ev = result.event;
+      if (ev.eventType === 'agent_started') {
+        const p = ev.payload as any;
+        await EntitiesRepository.insertAgentRun(this.db, {
+          id: p.runId,
+          agentName: p.agentName,
+          runType: p.runType,
+          status: 'started',
+          startedAt: ev.occurredAt,
+          completedAt: null,
+          resultSummary: null,
+          errorCode: null,
+          payload: JSON.stringify(p),
+          createdAt: ev.recordedAt,
+        });
+      } else if (ev.eventType === 'agent_completed') {
+        const p = ev.payload as any;
+        await EntitiesRepository.updateAgentRun(this.db, p.runId, {
+          status: 'completed',
+          completedAt: ev.occurredAt,
+          resultSummary: p.resultSummary,
+        });
+      } else if (ev.eventType === 'agent_failed') {
+        const p = ev.payload as any;
+        await EntitiesRepository.updateAgentRun(this.db, p.runId, {
+          status: 'failed',
+          completedAt: ev.occurredAt,
+          errorCode: p.errorCode,
+          resultSummary: p.errorMessage,
+        });
+      } else if (ev.eventType === 'checkpoint_created') {
+        const p = ev.payload as any;
+        await this.d1
+          .prepare(
+            'INSERT INTO checkpoints (id, checkpoint_name, checkpoint_type, state_data, created_at) VALUES (?, ?, ?, ?, ?)'
+          )
+          .bind(p.checkpointId, p.checkpointName, p.checkpointType, '{}', ev.recordedAt)
+          .run();
+      } else if (ev.eventType === 'source_registered') {
+        const p = ev.payload as any;
+        const existing = await EntitiesRepository.getSource(this.db, p.sourceId);
+        if (!existing) {
+          await EntitiesRepository.insertSource(this.db, {
+            id: p.sourceId,
+            title: p.title,
+            sourceType: p.sourceType,
+            status: 'registered',
+            createdAt: ev.recordedAt,
+            updatedAt: ev.recordedAt,
+          });
+        }
+      } else if (ev.eventType === 'source_mapped') {
+        const p = ev.payload as any;
+        const mappingId = p.sourceMappingId || generateId('map');
+        await EntitiesRepository.insertSourceMapping(this.db, {
+          id: mappingId,
+          sourceChapterId: p.sourceChapterId,
+          canonicalChapterId: p.canonicalChapterId,
+          mappingType: p.mappingType || 'direct',
+          relevance: 'high',
+          confidence: 1.0,
+          createdAt: ev.recordedAt,
+          updatedAt: ev.recordedAt,
+        });
+      }
 
       return {
         success: true,

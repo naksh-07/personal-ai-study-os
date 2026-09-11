@@ -523,5 +523,56 @@ describe('Google Apps Script Bridge: Adapters Implementation Suite', () => {
         '[study-os:entity_id:chap_02:idempotency_key:idemp_02]'
       );
     });
+
+    it('deletes task idempotently via tasks.delete bridge operation', async () => {
+      let deleteCalled = false;
+      let deletePayload: any = null;
+
+      const mockFetch = vi.fn(async (_url: string, init: any) => {
+        const body = JSON.parse(init.body);
+        if (body.operation === 'tasks.delete') {
+          deleteCalled = true;
+          deletePayload = body.payload;
+          if (body.payload.taskId === 'task_not_found') {
+            return new Response(
+              JSON.stringify({
+                ok: true,
+                statusCode: 404,
+                request_id: body.request_id,
+              }),
+              { status: 200 }
+            );
+          }
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              statusCode: 200,
+              data: { deleted: true },
+              request_id: body.request_id,
+            }),
+            { status: 200 }
+          );
+        }
+        return new Response('Not Found', { status: 404 });
+      });
+
+      const client = new GoogleBridgeClient({
+        bridgeUrl: 'https://script.google.com/macros/s/test/exec',
+        bridgeSecret: SECRET,
+        fetchFn: mockFetch as any,
+      });
+
+      const adapter = new GoogleTasksBridgeAdapter(client);
+
+      // 1. Successful deletion
+      const res = await adapter.deleteTask('@default', 'task_smoke_123');
+      expect(res).toBe(true);
+      expect(deleteCalled).toBe(true);
+      expect(deletePayload).toEqual({ tasklistId: '@default', taskId: 'task_smoke_123' });
+
+      // 2. 404 (already deleted) is treated as idempotent success
+      const res404 = await adapter.deleteTask('@default', 'task_not_found');
+      expect(res404).toBe(true);
+    });
   });
 });

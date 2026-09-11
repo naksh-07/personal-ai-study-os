@@ -215,6 +215,11 @@ export const SourceMappedPayloadSchema = z.object({
   mappingType: z.enum(['direct', 'partial', 'prerequisite']).default('direct'),
 });
 
+export const SourceMappingCompletedPayloadSchema = z.object({
+  sourceId: z.string().startsWith('src_'),
+  mappingsCount: z.number().int().min(0),
+});
+
 // ============================================================================
 // 8. Project Events
 // ============================================================================
@@ -267,6 +272,12 @@ export const AgentFailedPayloadSchema = z.object({
   agentName: z.string().min(1),
   errorCode: z.string().min(1),
   errorMessage: z.string().min(1),
+});
+
+export const CheckpointCreatedPayloadSchema = z.object({
+  checkpointId: z.string().startsWith('chk_'),
+  checkpointName: z.string().min(1),
+  checkpointType: z.string().min(1),
 });
 
 // ============================================================================
@@ -404,6 +415,11 @@ export const SourceMappedEventSchema = BaseEventEnvelopeSchema.extend({
   payload: SourceMappedPayloadSchema,
 });
 
+export const SourceMappingCompletedEventSchema = BaseEventEnvelopeSchema.extend({
+  eventType: z.literal('source_mapping_completed'),
+  payload: SourceMappingCompletedPayloadSchema,
+});
+
 export const ProjectStartedEventSchema = BaseEventEnvelopeSchema.extend({
   eventType: z.literal('project_started'),
   payload: ProjectStartedPayloadSchema,
@@ -437,6 +453,11 @@ export const AgentCompletedEventSchema = BaseEventEnvelopeSchema.extend({
 export const AgentFailedEventSchema = BaseEventEnvelopeSchema.extend({
   eventType: z.literal('agent_failed'),
   payload: AgentFailedPayloadSchema,
+});
+
+export const CheckpointCreatedEventSchema = BaseEventEnvelopeSchema.extend({
+  eventType: z.literal('checkpoint_created'),
+  payload: CheckpointCreatedPayloadSchema,
 });
 
 export const MemoryAddedEventSchema = BaseEventEnvelopeSchema.extend({
@@ -491,6 +512,7 @@ export const CanonicalEventSchema = z.discriminatedUnion('eventType', [
   ResearchCompletedEventSchema,
   SourceRegisteredEventSchema,
   SourceMappedEventSchema,
+  SourceMappingCompletedEventSchema,
   ProjectStartedEventSchema,
   ProjectUpdatedEventSchema,
   ProjectCompletedEventSchema,
@@ -498,6 +520,7 @@ export const CanonicalEventSchema = z.discriminatedUnion('eventType', [
   AgentStartedEventSchema,
   AgentCompletedEventSchema,
   AgentFailedEventSchema,
+  CheckpointCreatedEventSchema,
   MemoryAddedEventSchema,
   MemoryUpdatedEventSchema,
   MemoryInvalidatedEventSchema,
@@ -526,6 +549,7 @@ export type ResearchStartedEvent = z.infer<typeof ResearchStartedEventSchema>;
 export type ResearchCompletedEvent = z.infer<typeof ResearchCompletedEventSchema>;
 export type SourceRegisteredEvent = z.infer<typeof SourceRegisteredEventSchema>;
 export type SourceMappedEvent = z.infer<typeof SourceMappedEventSchema>;
+export type SourceMappingCompletedEvent = z.infer<typeof SourceMappingCompletedEventSchema>;
 export type ProjectStartedEvent = z.infer<typeof ProjectStartedEventSchema>;
 export type ProjectUpdatedEvent = z.infer<typeof ProjectUpdatedEventSchema>;
 export type ProjectCompletedEvent = z.infer<typeof ProjectCompletedEventSchema>;
@@ -533,6 +557,7 @@ export type DecisionRecordedEvent = z.infer<typeof DecisionRecordedEventSchema>;
 export type AgentStartedEvent = z.infer<typeof AgentStartedEventSchema>;
 export type AgentCompletedEvent = z.infer<typeof AgentCompletedEventSchema>;
 export type AgentFailedEvent = z.infer<typeof AgentFailedEventSchema>;
+export type CheckpointCreatedEvent = z.infer<typeof CheckpointCreatedEventSchema>;
 export type MemoryAddedEvent = z.infer<typeof MemoryAddedEventSchema>;
 export type MemoryUpdatedEvent = z.infer<typeof MemoryUpdatedEventSchema>;
 export type MemoryInvalidatedEvent = z.infer<typeof MemoryInvalidatedEventSchema>;

@@ -1,9 +1,9 @@
 # Personal AI Study OS — Documentation Index & Architecture Register
 
 **System Version:** 1.2.3  
-**Current Phase:** Final Build Authorization Review  
+**Current Phase:** Production Deployed & Verified  
 **Authoritative Implementation Specification:** [`docs/specifications/Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.3.md`](./docs/specifications/Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.3.md)  
-**Production Build Status:** **NOT YET AUTHORIZED** (Pending Final Build Authorization Review)
+**Production Build Status:** **PRODUCTION DEPLOYED & VERIFIED** (Release Tag `v1.2.3`)
 
 ---
 
@@ -69,9 +69,32 @@ docs/
 
 ---
 
-## 4. Strict Pre-Build Gate Rules
+## 4. Production Operational Reality & Architecture Boundaries
 
-- **No-Code Rule:** No production application code, migrations, or deployments may be executed until formal Build Authorization is granted.
-- **Single-Tenant Deployment:** Version 1 is explicitly scoped as a single-user personal system.
-- **Immutable Ledger:** Canonical events in Cloudflare D1 are strictly append-only; derived state is 100% rebuildable.
-- **Provider Authority:** Google Tasks owns task status (WHAT); Google Calendar owns precise time allocation (WHEN); Notion owns human-readable notes; Cloudflare D1 owns machine truth.
+- **Single-Tenant Deployment:** Scoped as a single-user personal operating system for study workflows.
+- **Immutable Ledger:** Canonical events in Cloudflare D1 (`personal_study_os_db_prod`) are strictly append-only; derived projections are 100% rebuildable.
+- **Provider Authority:**
+  - **Google Tasks:** Owns task existence and completion status (**WHAT**).
+  - **Google Calendar:** Owns schedule blocks and calendar slots (**WHEN**).
+  - **Notion:** Human-facing long-term study memory and rich session notes.
+  - **Cloudflare D1:** Authoritative machine truth, event log, and idempotency ledger.
+  - **Antigravity:** Technical execution agent authorized for backend engineering, deployment, and operational tasks.
+  - **Gemini Spark & ChatGPT:** Intermittent LLM intelligence for planning and scheduling (human-configured custom instructions; no continuous sync, no chat history stored).
+
+---
+
+## 5. Human Configuration Contract
+
+The technical infrastructure, database, queues, bridge, and worker endpoints are fully deployed and verified. The remaining external UI integrations require manual human configuration via their respective web interfaces:
+
+1. **Notion Integration:**
+   - Create the target study database in your Notion workspace.
+   - Configure integration token and database ID if Notion syncing is enabled.
+2. **Gemini Spark (Deep Thinker / Daily Planner):**
+   - Configure Custom Instructions in the Gemini web interface using the prompt specifications in `docs/specifications/Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.3.md`.
+   - Access the remote MCP server (`/mcp` endpoint) or REST API (`/v1/*`) via OAuth 2.1 / Bearer token.
+3. **ChatGPT (Intermittent Assistant):**
+   - Configure custom GPT actions or workflow prompts using the OpenAPI / MCP schema.
+   - Operates strictly on an on-demand, event-driven basis (no chat history or chain-of-thought stored in D1).
+4. **Google Apps Script Bridge:**
+   - Deployed and securely bound via HMAC-SHA256 signature verification for Google Tasks and Google Calendar synchronization.

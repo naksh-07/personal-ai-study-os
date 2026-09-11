@@ -21,6 +21,7 @@ import { GoogleBridgeClient } from './client';
 import {
   BridgeResponseEnvelope,
   BridgeTasksCreatePayload,
+  BridgeTasksDeletePayload,
   BridgeTasksGetPayload,
   BridgeTasksListPayload,
   BridgeTasksUpdatePayload,
@@ -267,5 +268,31 @@ export class GoogleTasksBridgeAdapter implements IGoogleTasksAdapter {
       updated: true,
       task: res.data!,
     };
+  }
+
+  /**
+   * Deletes an individual task by ID via the bridge.
+   * Treats 404 as success (idempotent delete).
+   */
+  async deleteTask(tasklistId: string, taskId: string): Promise<boolean> {
+    const res = await this.client.execute<BridgeTasksDeletePayload, { deleted?: boolean }>(
+      'tasks.delete',
+      {
+        tasklistId,
+        taskId,
+      }
+    );
+
+    if (res.statusCode === 404) {
+      return true;
+    }
+
+    if (!res.ok || res.statusCode !== 200) {
+      throw new Error(
+        `Google Tasks bridge DELETE failed with HTTP ${res.statusCode}: ${res.error?.message ?? 'Unknown'}`
+      );
+    }
+
+    return true;
   }
 }

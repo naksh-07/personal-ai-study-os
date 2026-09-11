@@ -176,6 +176,16 @@ export async function dispatchToProviderAdapter(
           due: p.due,
           status: p.status,
         });
+      } else if (operation === 'delete') {
+        const taskId = p.taskId ?? p.task_id ?? entityId;
+        await adapter.deleteTask(tasklistId, taskId);
+        if (env.DB) {
+          await env.DB.prepare(
+            `DELETE FROM task_links WHERE provider = 'google_tasks' AND tasklist_id = ? AND task_id = ?`
+          )
+            .bind(tasklistId, taskId)
+            .run();
+        }
       }
       break;
     }
