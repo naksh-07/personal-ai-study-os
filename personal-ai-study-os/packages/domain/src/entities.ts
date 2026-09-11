@@ -760,3 +760,32 @@ export const LinkCalendarEventInputSchema = z.object({
   path: ['endsAt'],
 });
 export type LinkCalendarEventInput = z.input<typeof LinkCalendarEventInputSchema>;
+
+// ============================================================================
+// 9. QUEUE MESSAGE ENVELOPE (Spec v1.2.3 Section 8.3)
+// ============================================================================
+
+export const QueueMessageEnvelopeSchema = z.object({
+  jobId: z.string(),
+  idempotencyKey: z.string(),
+  targetSystem: z.enum(['notion', 'google_tasks', 'google_calendar']),
+  entityType: z.string(),
+  entityId: z.string(),
+  operation: z.string(),
+  schemaVersion: z.number().default(1),
+  payload: z.record(z.string(), z.unknown()),
+  enqueuedAt: z.string(),
+});
+
+export interface QueueMessageEnvelope<T = Record<string, unknown>> {
+  jobId: string;
+  idempotencyKey: string;
+  targetSystem: 'notion' | 'google_tasks' | 'google_calendar';
+  entityType: string;
+  entityId: string;
+  operation: string;
+  schemaVersion: number;
+  payload: T;
+  enqueuedAt: string;
+}
+

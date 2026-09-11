@@ -83,3 +83,48 @@ export function isValidId(id: string, expectedPrefix?: IdPrefix): boolean {
   const validCharsRegex = /^[0123456789ABCDEFGHJKMNPQRSTVWXYZ]+$/i;
   return validCharsRegex.test(suffix);
 }
+
+// ============================================================================
+// Base32hex & Deterministic External Identifiers (RFC 4648 / Spec v1.2.3 Sec 10.2)
+// ============================================================================
+
+const BASE32HEX_CHARS = '0123456789abcdefghijklmnopqrstuv';
+
+/**
+ * Encodes a buffer into an RFC 4648 Base32hex lowercase string without padding.
+ */
+export function toBase32Hex(buffer: Uint8Array): string {
+  let bits = 0;
+  let value = 0;
+  let output = '';
+
+  for (let i = 0; i < buffer.length; i++) {
+    value = (value << 8) | (buffer[i] & 0xff);
+    bits += 8;
+
+    while (bits >= 5) {
+      output += BASE32HEX_CHARS[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+    value = value & ((1 << bits) - 1);
+  }
+
+  if (bits > 0) {
+    output += BASE32HEX_CHARS[(value << (5 - bits)) & 31];
+  }
+
+  return output;
+}
+
+/**
+ * Generates a deterministic 32-character Base32hex lowercase event ID for Google Calendar.
+ * Character set conforms to [0-9a-v] per Google Calendar API v3 and RFC 4648 Section 7.
+ * Formula: base32hex(sha256(idempotencyKey)).substring(0, 32)
+ */
+export function generateDeterministicCalendarEventId(idempotencyKey: string): string {
+  const hash = crypto.createHash('sha256').update(idempotencyKey).digest();
+  return toBase32Hex(new Uint8Array(hash)).substring(0, 32);
+}
+
+export const generateDeterministicCalendarId = generateDeterministicCalendarEventId;
+

@@ -6,6 +6,9 @@ import { stateRoutes } from './routes/state.routes';
 import { eventsRoutes } from './routes/events.routes';
 import { mutationsRoutes } from './routes/mutations.routes';
 import { adminRoutes } from './routes/admin.routes';
+import { mcpRouter } from './mcp/streamable-http';
+import { processQueueBatch } from './queue/consumer';
+import { handleScheduled } from './cron/scheduled';
 import { AppContext, Env } from './types';
 
 export type { Env, AppContext };
@@ -48,6 +51,9 @@ app.route('/v1', eventsRoutes);
 app.route('/v1', mutationsRoutes);
 app.route('/v1', adminRoutes);
 
+// Mount Remote MCP Server Routes (/mcp, /mcp/sse, /mcp/messages)
+app.route('/', mcpRouter);
+
 // 404 Handler
 app.notFound((c) => {
   const requestId = c.get('requestId') || 'req_unknown';
@@ -70,4 +76,12 @@ app.notFound((c) => {
   );
 });
 
-export default app;
+// Wire fetch, queue, and scheduled into Cloudflare Worker export
+const worker = Object.assign(app, {
+  fetch: app.fetch.bind(app),
+  queue: processQueueBatch,
+  scheduled: handleScheduled,
+});
+
+export { app, processQueueBatch, handleScheduled };
+export default worker;

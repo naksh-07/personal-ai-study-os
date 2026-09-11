@@ -449,6 +449,8 @@ export class ReliabilityEngine {
         results.push({ jobId: job.jobId, outcome: 'SKIPPED' });
       } else if (outcome.terminalDlq) {
         results.push({ jobId: job.jobId, outcome: 'TERMINAL_DEAD_LETTER' });
+      } else if (outcome.crashLoopDetected) {
+        results.push({ jobId: job.jobId, outcome: 'RECOVERED_AND_FAILED' });
       } else if (outcome.reconciliationOutcome === 'APPLIED') {
         results.push({ jobId: job.jobId, outcome: 'RECOVERED_AND_COMPLETED' });
       } else if (outcome.reconciliationOutcome === 'ABSENT') {

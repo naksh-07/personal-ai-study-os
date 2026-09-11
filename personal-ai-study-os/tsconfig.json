@@ -9,6 +9,8 @@
       "@personal-os/db/*": ["packages/db/src/*"],
       "@personal-os/core": ["packages/core/src"],
       "@personal-os/core/*": ["packages/core/src/*"],
+      "@personal-os/adapters": ["./packages/adapters/src/index.ts"],
+      "@personal-os/adapters/*": ["packages/adapters/src/*"],
       "@personal-os/worker": ["apps/worker/src"],
       "@personal-os/worker/*": ["apps/worker/src/*"]
     }

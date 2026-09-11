@@ -20,5 +20,79 @@ max_batch_timeout = 5
 max_retries = 5
 dead_letter_queue = "personal-sync-dlq"
 
+[triggers]
+crons = ["* * * * *", "0 */6 * * *"]
+
+[[queues.producers]]
+binding = "DLQ"
+queue = "personal-sync-dlq"
+
 [vars]
 ENVIRONMENT = "development"
+
+# ============================================================================
+# Staging Environment
+# ============================================================================
+[env.staging]
+name = "personal-ai-study-os-staging"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "personal_study_os_db_staging"
+database_id = "00000000-0000-0000-0000-000000000001"
+migrations_dir = "migrations"
+
+[[env.staging.queues.producers]]
+binding = "SYNC_QUEUE"
+queue = "personal-sync-queue-staging"
+
+[[env.staging.queues.producers]]
+binding = "DLQ"
+queue = "personal-sync-dlq-staging"
+
+[[env.staging.queues.consumers]]
+queue = "personal-sync-queue-staging"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 5
+dead_letter_queue = "personal-sync-dlq-staging"
+
+[env.staging.triggers]
+crons = ["* * * * *", "0 */6 * * *"]
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+
+# ============================================================================
+# Production Environment (Explicit release gate promotion only)
+# ============================================================================
+[env.production]
+name = "personal-ai-study-os-production"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "personal_study_os_db_prod"
+database_id = "00000000-0000-0000-0000-000000000002"
+migrations_dir = "migrations"
+
+[[env.production.queues.producers]]
+binding = "SYNC_QUEUE"
+queue = "personal-sync-queue-prod"
+
+[[env.production.queues.producers]]
+binding = "DLQ"
+queue = "personal-sync-dlq-prod"
+
+[[env.production.queues.consumers]]
+queue = "personal-sync-queue-prod"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 5
+dead_letter_queue = "personal-sync-dlq-prod"
+
+[env.production.triggers]
+crons = ["* * * * *", "0 */6 * * *"]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+

@@ -5,8 +5,7 @@
     "baseUrl": ".",
     "paths": {
       "@personal-os/domain": ["../domain/src"],
-      "@personal-os/db": ["../db/src"],
-      "@personal-os/adapters": ["../adapters/src"]
+      "@personal-os/db": ["../db/src"]
     }
   },
   "include": ["src/**/*"]

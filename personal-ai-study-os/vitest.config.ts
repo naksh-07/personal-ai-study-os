@@ -11,6 +11,7 @@ export default defineConfig({
       '@personal-os/domain': path.resolve(__dirname, './packages/domain/src'),
       '@personal-os/db': path.resolve(__dirname, './packages/db/src'),
       '@personal-os/core': path.resolve(__dirname, './packages/core/src'),
+      '@personal-os/adapters': path.resolve(__dirname, './packages/adapters/src'),
       '@personal-os/worker': path.resolve(__dirname, './apps/worker/src'),
     },
   },
