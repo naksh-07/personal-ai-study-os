@@ -1,4 +1,4 @@
-﻿name: Personal AI Study OS CI/CD Release Gate
+name: Personal AI Study OS CI/CD Release Gate
 
 on:
   pull_request:
@@ -51,6 +51,7 @@ jobs:
     needs: [pr-gate]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    environment: staging
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -66,8 +67,16 @@ jobs:
         run: npm ci
         working-directory: personal-ai-study-os
 
+      - name: Validate Cloudflare Credentials
+        run: |
+          if [ -z "${CLOUDFLARE_API_TOKEN}" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN is not configured. Staging deployment aborted."
+            exit 1
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
       - name: Apply Staging D1 Migrations
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
         run: npx wrangler d1 migrations apply DB --env staging --remote
         working-directory: personal-ai-study-os/apps/worker
         env:
@@ -75,7 +84,6 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy Staging Worker
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
         run: npx wrangler deploy --env staging
         working-directory: personal-ai-study-os/apps/worker
         env:
@@ -93,6 +101,7 @@ jobs:
     needs: [pr-gate]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -108,8 +117,16 @@ jobs:
         run: npm ci
         working-directory: personal-ai-study-os
 
+      - name: Validate Cloudflare Credentials
+        run: |
+          if [ -z "${CLOUDFLARE_API_TOKEN}" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN is not configured. Production deployment aborted."
+            exit 1
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
       - name: Apply Production D1 Migrations
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
         run: npx wrangler d1 migrations apply DB --env production --remote
         working-directory: personal-ai-study-os/apps/worker
         env:
@@ -117,7 +134,6 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy Production Worker
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
         run: npx wrangler deploy --env production
         working-directory: personal-ai-study-os/apps/worker
         env:
