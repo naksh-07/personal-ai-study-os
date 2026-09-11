@@ -17,6 +17,7 @@ export const SourceSystemSchema = z.enum([
   'chatgpt',
   'spark',
   'antigravity',
+  'studysourcecore',
   'notion',
   'google_tasks',
   'google_calendar',
@@ -206,18 +207,35 @@ export const SourceRegisteredPayloadSchema = z.object({
   sourceId: z.string().startsWith('src_'),
   title: z.string().min(1),
   sourceType: z.enum(['book', 'pdf', 'syllabus', 'notes']),
+  author: z.string().optional(),
+  publisher: z.string().optional(),
+  edition: z.string().optional(),
+  referenceUri: z.string().optional(),
+});
+
+export const SourceChapterCreatedPayloadSchema = z.object({
+  sourceChapterId: z.string().startsWith('srcchap_'),
+  sourceId: z.string().startsWith('src_'),
+  title: z.string().min(1),
+  chapterNumber: z.number().int().optional(),
+  locationReference: z.string().optional(),
+  parentChapterId: z.string().startsWith('srcchap_').optional(),
 });
 
 export const SourceMappedPayloadSchema = z.object({
   sourceMappingId: z.string().startsWith('map_').optional(),
   sourceChapterId: z.string().startsWith('srcchap_'),
   canonicalChapterId: z.string().startsWith('chap_'),
+  subjectId: z.string().startsWith('subj_').optional(),
   mappingType: z.enum(['direct', 'partial', 'prerequisite']).default('direct'),
+  relevance: z.enum(['high', 'medium', 'low']).default('high'),
+  confidence: z.number().min(0.0).max(1.0).default(1.0),
+  notes: z.string().optional(),
 });
 
 export const SourceMappingCompletedPayloadSchema = z.object({
   sourceId: z.string().startsWith('src_'),
-  mappingsCount: z.number().int().min(0),
+  mappingsCount: z.number().int().min(0).default(0),
 });
 
 // ============================================================================
@@ -227,12 +245,14 @@ export const SourceMappingCompletedPayloadSchema = z.object({
 export const ProjectStartedPayloadSchema = z.object({
   projectId: z.string().startsWith('proj_'),
   name: z.string().min(1),
+  description: z.string().optional(),
 });
 
 export const ProjectUpdatedPayloadSchema = z.object({
   projectId: z.string().startsWith('proj_'),
   milestone: z.string().optional(),
   status: z.enum(['planned', 'active', 'paused', 'completed', 'cancelled']).optional(),
+  description: z.string().optional(),
 });
 
 export const ProjectCompletedPayloadSchema = z.object({
@@ -263,13 +283,13 @@ export const AgentStartedPayloadSchema = z.object({
 
 export const AgentCompletedPayloadSchema = z.object({
   runId: z.string().startsWith('agentrun_'),
-  agentName: z.string().min(1),
+  agentName: z.string().optional(),
   resultSummary: z.string().min(1),
 });
 
 export const AgentFailedPayloadSchema = z.object({
   runId: z.string().startsWith('agentrun_'),
-  agentName: z.string().min(1),
+  agentName: z.string().optional(),
   errorCode: z.string().min(1),
   errorMessage: z.string().min(1),
 });
@@ -410,6 +430,11 @@ export const SourceRegisteredEventSchema = BaseEventEnvelopeSchema.extend({
   payload: SourceRegisteredPayloadSchema,
 });
 
+export const SourceChapterCreatedEventSchema = BaseEventEnvelopeSchema.extend({
+  eventType: z.literal('source_chapter_created'),
+  payload: SourceChapterCreatedPayloadSchema,
+});
+
 export const SourceMappedEventSchema = BaseEventEnvelopeSchema.extend({
   eventType: z.literal('source_mapped'),
   payload: SourceMappedPayloadSchema,
@@ -511,6 +536,7 @@ export const CanonicalEventSchema = z.discriminatedUnion('eventType', [
   ResearchStartedEventSchema,
   ResearchCompletedEventSchema,
   SourceRegisteredEventSchema,
+  SourceChapterCreatedEventSchema,
   SourceMappedEventSchema,
   SourceMappingCompletedEventSchema,
   ProjectStartedEventSchema,
@@ -548,6 +574,7 @@ export type TaskReopenedEvent = z.infer<typeof TaskReopenedEventSchema>;
 export type ResearchStartedEvent = z.infer<typeof ResearchStartedEventSchema>;
 export type ResearchCompletedEvent = z.infer<typeof ResearchCompletedEventSchema>;
 export type SourceRegisteredEvent = z.infer<typeof SourceRegisteredEventSchema>;
+export type SourceChapterCreatedEvent = z.infer<typeof SourceChapterCreatedEventSchema>;
 export type SourceMappedEvent = z.infer<typeof SourceMappedEventSchema>;
 export type SourceMappingCompletedEvent = z.infer<typeof SourceMappingCompletedEventSchema>;
 export type ProjectStartedEvent = z.infer<typeof ProjectStartedEventSchema>;

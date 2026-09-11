@@ -267,6 +267,24 @@ export class EntitiesRepository {
       .execute();
   }
 
+  static async updateProject(
+    db: Kysely<Database>,
+    id: string,
+    update: Partial<Omit<Project, 'id' | 'createdAt'>>
+  ) {
+    const patch: Record<string, any> = {};
+    if (update.name !== undefined) patch.name = update.name;
+    if (update.description !== undefined) patch.description = update.description;
+    if (update.status !== undefined) patch.status = update.status;
+    if (update.updatedAt !== undefined) patch.updated_at = update.updatedAt;
+
+    return await db
+      .updateTable('projects')
+      .set(patch)
+      .where('id', '=', id)
+      .execute();
+  }
+
   static async getProject(db: Kysely<Database>, id: string): Promise<Project | null> {
     const row = await db.selectFrom('projects').selectAll().where('id', '=', id).executeTakeFirst();
     if (!row) return null;
@@ -613,6 +631,22 @@ export class EntitiesRepository {
     };
   }
 
+  static async listSources(db: Kysely<Database>, limit = 50): Promise<Source[]> {
+    const rows = await db.selectFrom('sources').selectAll().orderBy('created_at', 'desc').limit(limit).execute();
+    return rows.map(row => ({
+      id: row.id,
+      title: row.title,
+      sourceType: row.source_type,
+      author: row.author,
+      publisher: row.publisher,
+      edition: row.edition,
+      referenceUri: row.reference_uri,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
   static async insertSourceChapter(db: Kysely<Database>, chapter: SourceChapter) {
     return await db
       .insertInto('source_chapters')
@@ -642,6 +676,25 @@ export class EntitiesRepository {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
+  }
+
+  static async getSourceChapters(db: Kysely<Database>, sourceId: string): Promise<SourceChapter[]> {
+    const rows = await db
+      .selectFrom('source_chapters')
+      .selectAll()
+      .where('source_id', '=', sourceId)
+      .orderBy('chapter_number', 'asc')
+      .execute();
+    return rows.map(row => ({
+      id: row.id,
+      sourceId: row.source_id,
+      title: row.title,
+      chapterNumber: row.chapter_number,
+      locationReference: row.location_reference,
+      parentChapterId: row.parent_chapter_id,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
   }
 
   static async insertSourceMapping(db: Kysely<Database>, mapping: SourceMapping) {
@@ -692,6 +745,42 @@ export class EntitiesRepository {
       mappingType: r.mapping_type,
       relevance: r.relevance,
       confidence: r.confidence,
+    }));
+  }
+
+  static async getSourceMappingsBySource(db: Kysely<Database>, sourceId: string): Promise<Array<SourceMapping & { canonicalChapterName?: string }>> {
+    const rows = await db
+      .selectFrom('source_mappings')
+      .innerJoin('source_chapters', 'source_chapters.id', 'source_mappings.source_chapter_id')
+      .innerJoin('chapters', 'chapters.id', 'source_mappings.canonical_chapter_id')
+      .select([
+        'source_mappings.id',
+        'source_mappings.source_chapter_id',
+        'source_mappings.canonical_chapter_id',
+        'source_mappings.subject_id',
+        'source_mappings.mapping_type',
+        'source_mappings.relevance',
+        'source_mappings.confidence',
+        'source_mappings.notes',
+        'source_mappings.created_at',
+        'source_mappings.updated_at',
+        'chapters.name as canonical_chapter_name',
+      ])
+      .where('source_chapters.source_id', '=', sourceId)
+      .execute();
+
+    return rows.map(r => ({
+      id: r.id,
+      sourceChapterId: r.source_chapter_id,
+      canonicalChapterId: r.canonical_chapter_id,
+      subjectId: r.subject_id ?? undefined,
+      mappingType: r.mapping_type,
+      relevance: r.relevance,
+      confidence: r.confidence,
+      notes: r.notes ?? undefined,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      canonicalChapterName: r.canonical_chapter_name,
     }));
   }
 
@@ -840,6 +929,59 @@ export class EntitiesRepository {
       resultSummary: row.result_summary,
       errorCode: row.error_code,
       payload: row.payload,
+      createdAt: row.created_at,
+    }));
+  }
+
+  // Checkpoints
+  static async insertCheckpoint(db: Kysely<Database>, checkpoint: {
+    id: string;
+    checkpointName: string;
+    checkpointType: string;
+    stateData: string;
+    createdAt: string;
+  }) {
+    return await db
+      .insertInto('checkpoints')
+      .values({
+        id: checkpoint.id,
+        checkpoint_name: checkpoint.checkpointName,
+        checkpoint_type: checkpoint.checkpointType,
+        state_data: checkpoint.stateData,
+        created_at: checkpoint.createdAt,
+      })
+      .execute();
+  }
+
+  static async getCheckpoint(db: Kysely<Database>, name: string) {
+    const row = await db
+      .selectFrom('checkpoints')
+      .selectAll()
+      .where('checkpoint_name', '=', name)
+      .orderBy('created_at', 'desc')
+      .executeTakeFirst();
+    if (!row) return null;
+    return {
+      id: row.id,
+      checkpointName: row.checkpoint_name,
+      checkpointType: row.checkpoint_type,
+      stateData: row.state_data,
+      createdAt: row.created_at,
+    };
+  }
+
+  static async listCheckpoints(db: Kysely<Database>, limit = 20) {
+    const rows = await db
+      .selectFrom('checkpoints')
+      .selectAll()
+      .orderBy('created_at', 'desc')
+      .limit(limit)
+      .execute();
+    return rows.map(row => ({
+      id: row.id,
+      checkpointName: row.checkpoint_name,
+      checkpointType: row.checkpoint_type,
+      stateData: row.state_data,
       createdAt: row.created_at,
     }));
   }

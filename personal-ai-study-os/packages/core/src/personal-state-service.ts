@@ -45,6 +45,10 @@ import {
   ConflictError,
   MathematicalConstraintError,
   AgentRun,
+  Source,
+  SourceChapter,
+  SourceMapping,
+  SourceState,
 } from '@personal-os/domain';
 import { CanonicalEventEngine, CreateCanonicalEventInput } from './event-engine';
 import { AtomicWriter } from './atomic-writer';
@@ -713,6 +717,34 @@ export class PersonalStateService {
   }
 
   /**
+   * 9d. get_source_state:
+   * Returns source details, chapter structure (TOC), and canonical mappings.
+   */
+  async getSourceState(sourceId: string): Promise<SourceState> {
+    const source = await EntitiesRepository.getSource(this.db, sourceId);
+    if (!source) {
+      throw new NotFoundError('ENTITY_NOT_FOUND', `Source '${sourceId}' not found.`);
+    }
+
+    const chapters = await EntitiesRepository.getSourceChapters(this.db, sourceId);
+    const mappings = await EntitiesRepository.getSourceMappingsBySource(this.db, sourceId);
+
+    return {
+      source,
+      chapters,
+      mappings,
+    };
+  }
+
+  /**
+   * 9e. list_sources:
+   * Lists registered external study sources without copyrighted content.
+   */
+  async listSources(limit?: number): Promise<Source[]> {
+    return await EntitiesRepository.listSources(this.db, limit);
+  }
+
+  /**
    * 10. get_sync_status:
    * Aggregated synchronization health without exposing secrets or credentials.
    */
@@ -821,12 +853,63 @@ export class PersonalStateService {
         });
       } else if (ev.eventType === 'checkpoint_created') {
         const p = ev.payload as any;
-        await this.d1
-          .prepare(
-            'INSERT INTO checkpoints (id, checkpoint_name, checkpoint_type, state_data, created_at) VALUES (?, ?, ?, ?, ?)'
-          )
-          .bind(p.checkpointId, p.checkpointName, p.checkpointType, '{}', ev.recordedAt)
-          .run();
+        await EntitiesRepository.insertCheckpoint(this.db, {
+          id: p.checkpointId,
+          checkpointName: p.checkpointName,
+          checkpointType: p.checkpointType,
+          stateData: '{}',
+          createdAt: ev.recordedAt,
+        });
+      } else if (ev.eventType === 'project_started') {
+        const p = ev.payload as any;
+        const existing = await EntitiesRepository.getProject(this.db, p.projectId);
+        if (!existing) {
+          await EntitiesRepository.insertProject(this.db, {
+            id: p.projectId,
+            name: p.name,
+            description: p.description ?? null,
+            status: 'active',
+            createdAt: ev.recordedAt,
+            updatedAt: ev.recordedAt,
+          });
+        }
+        await EntitiesRepository.insertProjectEvent(this.db, {
+          id: generateId('progevt'),
+          projectId: p.projectId,
+          eventType: 'started',
+          actor: ev.actor.type,
+          payloadJson: JSON.stringify(p),
+          createdAt: ev.recordedAt,
+        });
+      } else if (ev.eventType === 'project_updated') {
+        const p = ev.payload as any;
+        await EntitiesRepository.updateProject(this.db, p.projectId, {
+          status: p.status,
+          description: p.description,
+          updatedAt: ev.recordedAt,
+        });
+        await EntitiesRepository.insertProjectEvent(this.db, {
+          id: generateId('progevt'),
+          projectId: p.projectId,
+          eventType: p.milestone ? 'milestone_reached' : 'started',
+          actor: ev.actor.type,
+          payloadJson: JSON.stringify(p),
+          createdAt: ev.recordedAt,
+        });
+      } else if (ev.eventType === 'project_completed') {
+        const p = ev.payload as any;
+        await EntitiesRepository.updateProject(this.db, p.projectId, {
+          status: 'completed',
+          updatedAt: ev.recordedAt,
+        });
+        await EntitiesRepository.insertProjectEvent(this.db, {
+          id: generateId('progevt'),
+          projectId: p.projectId,
+          eventType: 'completed',
+          actor: ev.actor.type,
+          payloadJson: JSON.stringify(p),
+          createdAt: ev.recordedAt,
+        });
       } else if (ev.eventType === 'source_registered') {
         const p = ev.payload as any;
         const existing = await EntitiesRepository.getSource(this.db, p.sourceId);
@@ -835,11 +918,27 @@ export class PersonalStateService {
             id: p.sourceId,
             title: p.title,
             sourceType: p.sourceType,
+            author: p.author ?? null,
+            publisher: p.publisher ?? null,
+            edition: p.edition ?? null,
+            referenceUri: p.referenceUri ?? null,
             status: 'registered',
             createdAt: ev.recordedAt,
             updatedAt: ev.recordedAt,
           });
         }
+      } else if (ev.eventType === 'source_chapter_created') {
+        const p = ev.payload as any;
+        await EntitiesRepository.insertSourceChapter(this.db, {
+          id: p.sourceChapterId,
+          sourceId: p.sourceId,
+          title: p.title,
+          chapterNumber: p.chapterNumber ?? null,
+          locationReference: p.locationReference ?? null,
+          parentChapterId: p.parentChapterId ?? null,
+          createdAt: ev.recordedAt,
+          updatedAt: ev.recordedAt,
+        });
       } else if (ev.eventType === 'source_mapped') {
         const p = ev.payload as any;
         const mappingId = p.sourceMappingId || generateId('map');
@@ -847,12 +946,21 @@ export class PersonalStateService {
           id: mappingId,
           sourceChapterId: p.sourceChapterId,
           canonicalChapterId: p.canonicalChapterId,
+          subjectId: p.subjectId ?? null,
           mappingType: p.mappingType || 'direct',
-          relevance: 'high',
-          confidence: 1.0,
+          relevance: p.relevance || 'high',
+          confidence: p.confidence ?? 1.0,
+          notes: p.notes ?? null,
           createdAt: ev.recordedAt,
           updatedAt: ev.recordedAt,
         });
+      } else if (ev.eventType === 'source_mapping_completed') {
+        const p = ev.payload as any;
+        await this.db
+          .updateTable('sources')
+          .set({ status: 'mapped', updated_at: ev.recordedAt })
+          .where('id', '=', p.sourceId)
+          .execute();
       }
 
       return {

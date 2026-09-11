@@ -6,6 +6,9 @@ import {
   EventPayloadError,
   DomainError,
   generateId,
+  SourceSystem,
+  SourceInterface,
+  ActorType,
 } from '@personal-os/domain';
 
 export interface CreateCanonicalEventInput<T = unknown> {
@@ -13,12 +16,12 @@ export interface CreateCanonicalEventInput<T = unknown> {
   schemaVersion?: number;
   occurredAt?: string;
   actor: {
-    type: 'user' | 'agent' | 'system';
+    type: ActorType;
     id: string;
   };
   source: {
-    system: 'chatgpt' | 'spark' | 'antigravity' | 'notion' | 'google_tasks' | 'google_calendar' | 'system';
-    interface: 'natural_language' | 'mcp' | 'rest' | 'webhook';
+    system: SourceSystem;
+    interface: SourceInterface;
   };
   payload: T;
   correlationId?: string;

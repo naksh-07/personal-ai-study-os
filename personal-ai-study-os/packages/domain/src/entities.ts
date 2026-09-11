@@ -636,6 +636,12 @@ export interface ProjectState {
   };
 }
 
+export interface SourceState {
+  source: Source;
+  chapters: SourceChapter[];
+  mappings: Array<SourceMapping & { canonicalChapterName?: string }>;
+}
+
 export interface SyncStatusState {
   healthy: boolean;
   pendingJobsCount: number;

@@ -144,3 +144,36 @@ stateRoutes.get('/sync/status', async (c) => {
   const status = await service.getSyncStatus();
   return formatResponse(c, status);
 });
+
+// 11. Agent State (Dual routes: /agents/:runId and /state/agents/:runId)
+const handleAgentState = async (c: Context<AppContext>) => {
+  const runId = c.req.param('runId')!;
+  const service = new PersonalStateService(c.env.DB, createKyselyD1(c.env.DB));
+  const state = await service.getAgentState(runId);
+  return formatResponse(c, state);
+};
+
+stateRoutes.get('/agents/:runId', handleAgentState);
+stateRoutes.get('/state/agents/:runId', handleAgentState);
+
+// 12. Sources List & State (Dual routes: /sources, /state/sources, /sources/:sourceId, /state/sources/:sourceId)
+const handleSourcesList = async (c: Context<AppContext>) => {
+  const limit = c.req.query('limit') ? Number(c.req.query('limit')) : undefined;
+  const service = new PersonalStateService(c.env.DB, createKyselyD1(c.env.DB));
+  const sources = await service.listSources(limit);
+  return formatResponse(c, { sources });
+};
+
+stateRoutes.get('/sources', handleSourcesList);
+stateRoutes.get('/state/sources', handleSourcesList);
+
+const handleSourceState = async (c: Context<AppContext>) => {
+  const sourceId = c.req.param('sourceId')!;
+  const service = new PersonalStateService(c.env.DB, createKyselyD1(c.env.DB));
+  const state = await service.getSourceState(sourceId);
+  return formatResponse(c, state);
+};
+
+stateRoutes.get('/sources/:sourceId', handleSourceState);
+stateRoutes.get('/state/sources/:sourceId', handleSourceState);
+

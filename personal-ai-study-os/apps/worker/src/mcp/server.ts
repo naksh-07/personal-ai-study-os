@@ -1,4 +1,4 @@
-import { createKyselyD1, D1Database, Database } from '@personal-os/db';
+import { createKyselyD1, D1Database, Database, EntitiesRepository } from '@personal-os/db';
 import { Kysely } from 'kysely';
 import { PersonalStateService } from '@personal-os/core';
 import { generateId, ForbiddenError, ValidationError } from '@personal-os/domain';
@@ -202,9 +202,47 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       return await service.getSyncStatus();
     },
   },
+  {
+    name: 'get_agent_state',
+    description: 'Returns autonomous agent run machine state, execution status, and result summary.',
+    scope: 'read',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        runId: { type: 'string', description: 'Canonical agent run ID' },
+        run_id: { type: 'string', description: 'Alternative agent run ID parameter' },
+      },
+    },
+    handler: async (service, args) => {
+      const runId = args?.runId || args?.run_id;
+      if (!runId) {
+        throw new ValidationError("Parameter 'runId' is required for get_agent_state");
+      }
+      return await service.getAgentState(runId);
+    },
+  },
+  {
+    name: 'get_source_state',
+    description: 'Returns external study source metadata, table of contents (chapters), and canonical subject mappings without storing raw text.',
+    scope: 'read',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sourceId: { type: 'string', description: 'Canonical source ID' },
+        source_id: { type: 'string', description: 'Alternative source ID parameter' },
+      },
+    },
+    handler: async (service, args) => {
+      const sourceId = args?.sourceId || args?.source_id;
+      if (!sourceId) {
+        throw new ValidationError("Parameter 'sourceId' is required for get_source_state");
+      }
+      return await service.getSourceState(sourceId);
+    },
+  },
 
   // ==========================================================================
-  // MUTATION TOOLS (8 Semantic Mutations - require 'write' scope)
+  // MUTATION TOOLS (12 Semantic Mutations - require 'write' scope)
   // ==========================================================================
   {
     name: 'record_event',
@@ -494,6 +532,229 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       );
     },
   },
+  {
+    name: 'record_project_event',
+    description: 'Records project milestones, status changes, or completions into canonical events and project state.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectId: { type: 'string', description: 'Canonical project ID' },
+        project_id: { type: 'string' },
+        eventType: { type: 'string', enum: ['project_started', 'project_updated', 'project_completed'] },
+        name: { type: 'string', description: 'Project name (required for project_started)' },
+        description: { type: 'string', description: 'Optional project description' },
+        milestone: { type: 'string', description: 'Milestone description for project_updated' },
+        status: { type: 'string', enum: ['planned', 'active', 'paused', 'completed', 'cancelled'] },
+        idempotency_key: { type: 'string' },
+      },
+      required: ['eventType'],
+    },
+    handler: async (service, args) => {
+      const idempKey = args?.idempotency_key || args?.idempotencyKey;
+      const eventType = args?.eventType;
+      const projectId = args?.projectId || args?.project_id;
+      if (!projectId) {
+        throw new ValidationError("Parameter 'projectId' is required for record_project_event");
+      }
+
+      let payload: any;
+      if (eventType === 'project_started') {
+        if (!args.name) {
+          throw new ValidationError("Parameter 'name' is required for project_started");
+        }
+        payload = {
+          projectId,
+          name: args.name,
+          description: args.description,
+        };
+      } else if (eventType === 'project_updated') {
+        payload = {
+          projectId,
+          milestone: args.milestone,
+          status: args.status,
+          description: args.description,
+        };
+      } else if (eventType === 'project_completed') {
+        payload = {
+          projectId,
+        };
+      } else {
+        throw new ValidationError(`Invalid project eventType '${eventType}'`);
+      }
+
+      return await service.recordEvent(
+        {
+          eventType,
+          actor: args?.actor || { type: 'agent', id: 'agt_antigravity' },
+          source: args?.source || { system: 'antigravity', interface: 'mcp' },
+          payload,
+        },
+        idempKey ? { key: idempKey, sourceSystem: 'mcp' } : undefined
+      );
+    },
+  },
+  {
+    name: 'record_agent_event',
+    description: 'Records agent lifecycle events (agent_started, agent_completed, agent_failed) into canonical events and agent_runs.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        runId: { type: 'string', description: 'Canonical agent run ID' },
+        run_id: { type: 'string' },
+        agentName: { type: 'string', description: 'Agent identifier (e.g. Antigravity, StudySourceCore)' },
+        agent_name: { type: 'string' },
+        runType: { type: 'string', description: 'Run category (e.g. orchestration, analysis, ingestion)' },
+        run_type: { type: 'string' },
+        eventType: { type: 'string', enum: ['agent_started', 'agent_completed', 'agent_failed'] },
+        resultSummary: { type: 'string' },
+        result_summary: { type: 'string' },
+        errorCode: { type: 'string' },
+        error_code: { type: 'string' },
+        errorMessage: { type: 'string' },
+        error_message: { type: 'string' },
+        idempotency_key: { type: 'string' },
+      },
+      required: ['eventType'],
+    },
+    handler: async (service, args) => {
+      const idempKey = args?.idempotency_key || args?.idempotencyKey;
+      const eventType = args?.eventType;
+      const runId = args?.runId || args?.run_id || generateId('agentrun');
+
+      let payload: any;
+      if (eventType === 'agent_started') {
+        payload = {
+          runId,
+          agentName: args?.agentName || args?.agent_name || 'Antigravity',
+          runType: args?.runType || args?.run_type || 'orchestration',
+        };
+      } else if (eventType === 'agent_completed') {
+        payload = {
+          runId,
+          resultSummary: args?.resultSummary || args?.result_summary || 'Agent execution completed successfully',
+        };
+      } else if (eventType === 'agent_failed') {
+        payload = {
+          runId,
+          errorCode: args?.errorCode || args?.error_code || 'EXECUTION_FAILED',
+          errorMessage: args?.errorMessage || args?.error_message || 'Agent execution failed',
+        };
+      } else {
+        throw new ValidationError(`Invalid agent eventType '${eventType}'`);
+      }
+
+      return await service.recordEvent(
+        {
+          eventType,
+          actor: args?.actor || { type: 'agent', id: 'agt_antigravity' },
+          source: args?.source || { system: 'antigravity', interface: 'mcp' },
+          payload,
+        },
+        idempKey ? { key: idempKey, sourceSystem: 'mcp' } : undefined
+      );
+    },
+  },
+  {
+    name: 'register_source',
+    description: 'Registers external study source metadata (book, pdf, syllabus, notes) with strict zero-copyright full-text storage.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sourceId: { type: 'string', description: 'Canonical source ID (src_...)' },
+        source_id: { type: 'string' },
+        title: { type: 'string', description: 'Source title' },
+        sourceType: { type: 'string', enum: ['book', 'pdf', 'syllabus', 'notes'] },
+        source_type: { type: 'string', enum: ['book', 'pdf', 'syllabus', 'notes'] },
+        author: { type: 'string' },
+        publisher: { type: 'string' },
+        edition: { type: 'string' },
+        referenceUri: { type: 'string', description: 'Reference URI / location (NO full-text copyrighted content)' },
+        reference_uri: { type: 'string' },
+        idempotency_key: { type: 'string' },
+      },
+      required: ['title'],
+    },
+    handler: async (service, args) => {
+      const idempKey = args?.idempotency_key || args?.idempotencyKey;
+      const sourceId = args?.sourceId || args?.source_id || generateId('src');
+      const title = args?.title;
+      const sourceType = args?.sourceType || args?.source_type || 'book';
+
+      return await service.recordEvent(
+        {
+          eventType: 'source_registered',
+          actor: args?.actor || { type: 'agent', id: 'agt_studysourcecore' },
+          source: args?.source || { system: 'studysourcecore', interface: 'mcp' },
+          payload: {
+            sourceId,
+            title,
+            sourceType,
+            author: args?.author,
+            publisher: args?.publisher,
+            edition: args?.edition,
+            referenceUri: args?.referenceUri || args?.reference_uri,
+          },
+        },
+        idempKey ? { key: idempKey, sourceSystem: 'mcp' } : undefined
+      );
+    },
+  },
+  {
+    name: 'record_source_mapping',
+    description: 'Maps external source chapter / TOC items to canonical curriculum chapters.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sourceMappingId: { type: 'string' },
+        source_mapping_id: { type: 'string' },
+        sourceChapterId: { type: 'string', description: 'Source chapter ID (srcchap_...)' },
+        source_chapter_id: { type: 'string' },
+        canonicalChapterId: { type: 'string', description: 'Canonical chapter ID (chap_...)' },
+        canonical_chapter_id: { type: 'string' },
+        subjectId: { type: 'string', description: 'Subject ID (subj_...)' },
+        subject_id: { type: 'string' },
+        mappingType: { type: 'string', enum: ['direct', 'partial', 'prerequisite'] },
+        mapping_type: { type: 'string', enum: ['direct', 'partial', 'prerequisite'] },
+        relevance: { type: 'string', enum: ['high', 'medium', 'low'] },
+        confidence: { type: 'number' },
+        notes: { type: 'string' },
+        idempotency_key: { type: 'string' },
+      },
+      required: ['sourceChapterId', 'canonicalChapterId'],
+    },
+    handler: async (service, args) => {
+      const idempKey = args?.idempotency_key || args?.idempotencyKey;
+      const sourceChapterId = args?.sourceChapterId || args?.source_chapter_id;
+      const canonicalChapterId = args?.canonicalChapterId || args?.canonical_chapter_id;
+
+      if (!sourceChapterId || !canonicalChapterId) {
+        throw new ValidationError("Parameters 'sourceChapterId' and 'canonicalChapterId' are required");
+      }
+
+      return await service.recordEvent(
+        {
+          eventType: 'source_mapped',
+          actor: args?.actor || { type: 'agent', id: 'agt_studysourcecore' },
+          source: args?.source || { system: 'studysourcecore', interface: 'mcp' },
+          payload: {
+            sourceMappingId: args?.sourceMappingId || args?.source_mapping_id,
+            sourceChapterId,
+            canonicalChapterId,
+            subjectId: args?.subjectId || args?.subject_id,
+            mappingType: args?.mappingType || args?.mapping_type || 'direct',
+            relevance: args?.relevance || 'high',
+            confidence: args?.confidence ?? 1.0,
+            notes: args?.notes,
+          },
+        },
+        idempKey ? { key: idempKey, sourceSystem: 'mcp' } : undefined
+      );
+    },
+  },
 
   // ==========================================================================
   // SYSTEM TOOL (1 Tool - requires 'read' or 'admin' scope)
@@ -530,27 +791,36 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         const id = generateId('chk');
         const now = new Date().toISOString();
         const serialized = typeof data === 'string' ? data : JSON.stringify(data);
-        await ctx.d1
-          .prepare(
-            'INSERT INTO checkpoints (id, checkpoint_name, checkpoint_type, state_data, created_at) VALUES (?, ?, ?, ?, ?)'
-          )
-          .bind(id, name, type, serialized, now)
-          .run();
+        await EntitiesRepository.insertCheckpoint(ctx.db, {
+          id,
+          checkpointName: name,
+          checkpointType: type,
+          stateData: serialized,
+          createdAt: now,
+        });
         return { success: true, checkpointId: id, checkpointName: name, createdAt: now };
       } else if (action === 'get') {
         if (!name) {
           throw new ValidationError("Parameter 'checkpointName' is required for action 'get'");
         }
-        const row = await ctx.d1
-          .prepare('SELECT * FROM checkpoints WHERE checkpoint_name = ? ORDER BY created_at DESC LIMIT 1')
-          .bind(name)
-          .first();
-        return row ?? null;
+        const row = await EntitiesRepository.getCheckpoint(ctx.db, name);
+        if (!row) return null;
+        return {
+          id: row.id,
+          checkpoint_name: row.checkpointName,
+          checkpoint_type: row.checkpointType,
+          state_data: row.stateData,
+          created_at: row.createdAt,
+        };
       } else {
-        const rows = await ctx.d1
-          .prepare('SELECT * FROM checkpoints ORDER BY created_at DESC LIMIT 20')
-          .all();
-        return rows.results ?? [];
+        const rows = await EntitiesRepository.listCheckpoints(ctx.db, 20);
+        return rows.map(r => ({
+          id: r.id,
+          checkpoint_name: r.checkpointName,
+          checkpoint_type: r.checkpointType,
+          state_data: r.stateData,
+          created_at: r.createdAt,
+        }));
       }
     },
   },
