@@ -19,11 +19,16 @@ export function createTestDatabase(): TestContext {
   sqlite.pragma('foreign_keys = ON');
 
   // Load migration SQL from apps/worker/migrations/0001_initial_schema.sql
-  const migrationPath = path.resolve(__dirname, '../apps/worker/migrations/0001_initial_schema.sql');
-  const migrationSql = fs.readFileSync(migrationPath, 'utf8');
+  const migration1Path = path.resolve(__dirname, '../apps/worker/migrations/0001_initial_schema.sql');
+  const migration1Sql = fs.readFileSync(migration1Path, 'utf8');
+  sqlite.exec(migration1Sql);
 
-  // Execute migration
-  sqlite.exec(migrationSql);
+  // Load migration SQL from apps/worker/migrations/0002_schedule_blueprints.sql
+  const migration2Path = path.resolve(__dirname, '../apps/worker/migrations/0002_schedule_blueprints.sql');
+  if (fs.existsSync(migration2Path)) {
+    const migration2Sql = fs.readFileSync(migration2Path, 'utf8');
+    sqlite.exec(migration2Sql);
+  }
 
   const d1 = createD1FromBetterSqlite3(sqlite);
   const db = createKyselyD1(d1);

@@ -70,10 +70,79 @@ export const FocusContainerDefinitionSchema = z.object({
 });
 export type FocusContainerDefinition = z.infer<typeof FocusContainerDefinitionSchema>;
 
+export const ScheduleConstraintTypeSchema = z.enum([
+  'biological_invariant',
+  'fixed_commitment',
+  'personal_routine',
+  'curriculum_buffer',
+]);
+export type ScheduleConstraintType = z.infer<typeof ScheduleConstraintTypeSchema>;
+
+export const ScheduleBlueprintSchema = z.object({
+  id: z.string().startsWith('bp_'),
+  userId: z.string().startsWith('usr_'),
+  name: z.string().min(1),
+  timezone: z.string().default('Asia/Kolkata'),
+  isActive: z.boolean().default(true),
+  version: z.number().int().min(1).default(1),
+  maxDailyDeepWorkMinutes: z.number().int().min(1).default(270),
+  maxDailyFocusContainers: z.number().int().min(1).default(3),
+  maxContinuousSessionMinutes: z.number().int().min(1).default(90),
+  defaultDecompressionBufferMinutes: z.number().int().min(0).default(15),
+  freezeWindowMinutes: z.number().int().min(0).default(120),
+  bufferDays: z.array(z.number().int().min(0).max(6)).default([0]),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type ScheduleBlueprint = z.infer<typeof ScheduleBlueprintSchema>;
+
+export const ScheduleTimeMapSchema = z.object({
+  id: z.string().startsWith('tm_'),
+  blueprintId: z.string().startsWith('bp_'),
+  dayOfWeek: z.number().int().min(0).max(6).nullable(),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Must be HH:MM format'),
+  endTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Must be HH:MM format'),
+  subjectId: z.string().startsWith('subj_').nullable().optional(),
+  activityType: StudyActivityTypeSchema,
+  containerId: z.string().nullable().optional(),
+  isOptional: z.boolean().default(false),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type ScheduleTimeMap = z.infer<typeof ScheduleTimeMapSchema>;
+
+export const ScheduleConstraintSchema = z.object({
+  id: z.string().startsWith('sc_'),
+  blueprintId: z.string().startsWith('bp_'),
+  name: z.string().min(1),
+  constraintType: ScheduleConstraintTypeSchema,
+  dayOfWeek: z.number().int().min(0).max(6).nullable(),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Must be HH:MM format'),
+  endTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Must be HH:MM format'),
+  isHard: z.boolean().default(true),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type ScheduleConstraint = z.infer<typeof ScheduleConstraintSchema>;
+
+export const RuntimePolicyContextSchema = z.object({
+  timezone: z.string(),
+  maxDailyDeepWorkMinutes: z.number().int(),
+  maxDailyFocusContainers: z.number().int(),
+  maxContinuousSessionMinutes: z.number().int(),
+  defaultDecompressionBufferMinutes: z.number().int(),
+  freezeWindowMinutes: z.number().int(),
+  bufferDays: z.array(z.number().int()),
+});
+export type RuntimePolicyContext = z.infer<typeof RuntimePolicyContextSchema>;
+
 export const ScheduleBlueprintConfigSchema = z.object({
-  timezone: z.string().default('UTC'),
+  timezone: z.string().default('Asia/Kolkata'),
   maxDailyFocusContainers: z.number().int().min(1).default(3),
   maxDailyDeepWorkMinutes: z.number().int().min(1).default(270),
+  maxContinuousSessionMinutes: z.number().int().min(1).default(90),
+  defaultDecompressionBufferMinutes: z.number().int().min(0).default(15),
+  freezeWindowMinutes: z.number().int().min(0).default(120),
   bufferDays: z.array(z.number().int().min(0).max(6)).default([0]),
   containers: z.array(FocusContainerDefinitionSchema),
 });
@@ -541,6 +610,11 @@ export interface StudyState {
     entityId?: string;
   } | null;
   blueprint?: ScheduleBlueprintConfig;
+  activeBlueprint?: ScheduleBlueprint;
+  timeMaps?: ScheduleTimeMap[];
+  constraints?: ScheduleConstraint[];
+  runtimePolicy?: RuntimePolicyContext;
+  timezone?: string;
 }
 
 export interface ChapterHierarchyItem {
@@ -665,6 +739,9 @@ export interface ScheduleContextState {
     endsAt: string;
   }>;
   blueprint?: ScheduleBlueprintConfig;
+  activeBlueprint?: ScheduleBlueprint;
+  timeMaps?: ScheduleTimeMap[];
+  constraints?: ScheduleConstraint[];
 }
 
 export interface MemorySearchItem {

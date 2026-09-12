@@ -7,6 +7,7 @@ import {
   CanonicalEventsRepository,
   ProjectionsRepository,
   ReliabilityRepository,
+  BlueprintsRepository,
   ActivityFilterParams,
 } from '@personal-os/db';
 import {
@@ -54,11 +55,16 @@ import {
   SourceChapter,
   SourceMapping,
   SourceState,
+  ScheduleBlueprint,
+  ScheduleTimeMap,
+  ScheduleConstraint,
+  RuntimePolicyContext,
+  ScheduleBlueprintConfig,
 } from '@personal-os/domain';
 import { CanonicalEventEngine, CreateCanonicalEventInput } from './event-engine';
 import { AtomicWriter } from './atomic-writer';
 import { ProjectionEngine } from './projection-engine';
-import { DEFAULT_SCHEDULE_BLUEPRINT } from './blueprint';
+import { DEFAULT_SCHEDULE_BLUEPRINT, getUtcDayRange, getDayOfWeek } from './blueprint';
 
 export interface IdempotencyContext {
   key?: string;
@@ -98,8 +104,9 @@ export class PersonalStateService {
   async getTodayState(params?: { date?: string; timezone?: string }): Promise<TodayState> {
     let timezone = params?.timezone;
     if (!timezone) {
-      const user = await this.db.selectFrom('users').select('timezone').executeTakeFirst();
-      timezone = user?.timezone ?? 'UTC';
+      const user = await this.db.selectFrom('users').select(['id', 'timezone']).executeTakeFirst();
+      const activeBlueprint = await BlueprintsRepository.getActiveBlueprint(this.db, user?.id);
+      timezone = activeBlueprint?.timezone ?? user?.timezone ?? 'Asia/Kolkata';
     }
 
     const nowIso = new Date().toISOString();
@@ -108,12 +115,11 @@ export class PersonalStateService {
     // Fetch daily state projection
     const daily = await ProjectionsRepository.getDailyStateByDate(this.db, date);
 
-    // Fetch completed activity events for today
-    const startOfDay = `${date}T00:00:00.000Z`;
-    const endOfDay = `${date}T23:59:59.999Z`;
+    // Fetch completed activity events for today using timezone-aware UTC boundaries
+    const { startUtc, endUtc } = getUtcDayRange(date, timezone);
     const todayEvents = await CanonicalEventsRepository.getRecentActivity(this.db, {
-      startDate: startOfDay,
-      endDate: endOfDay,
+      startDate: startUtc,
+      endDate: endUtc,
     });
 
     const recentSessions = todayEvents
@@ -134,7 +140,7 @@ export class PersonalStateService {
     const completedTasks = taskLinks.filter(t => t.statusSnapshot === 'completed');
 
     // Fetch schedule context for today
-    const calendarLinks = await EntitiesRepository.getCalendarLinks(this.db, startOfDay, endOfDay);
+    const calendarLinks = await EntitiesRepository.getCalendarLinks(this.db, startUtc, endUtc);
     const missedSessions = todayEvents.filter(e => e.eventType === 'schedule_missed');
 
     // Fetch synchronization status
@@ -280,17 +286,15 @@ export class PersonalStateService {
       }));
 
     // Target study windows (Google Calendar schedule blocks for target date)
-    let timezone = params?.timezone;
-    if (!timezone) {
-      const user = await this.db.selectFrom('users').select('timezone').executeTakeFirst();
-      timezone = user?.timezone ?? 'UTC';
-    }
+    const user = await this.db.selectFrom('users').select(['id', 'timezone']).executeTakeFirst();
+    const activeBlueprint = await BlueprintsRepository.getActiveBlueprint(this.db, user?.id);
+    const timezone = params?.timezone ?? activeBlueprint?.timezone ?? user?.timezone ?? 'Asia/Kolkata';
+
     const nowIso = new Date().toISOString();
     const date = params?.date ?? ProjectionEngine.extractDate(nowIso, timezone);
-    const startOfDay = `${date}T00:00:00.000Z`;
-    const endOfDay = `${date}T23:59:59.999Z`;
+    const { startUtc, endUtc } = getUtcDayRange(date, timezone);
 
-    const calendarLinks = await EntitiesRepository.getCalendarLinks(this.db, startOfDay, endOfDay);
+    const calendarLinks = await EntitiesRepository.getCalendarLinks(this.db, startUtc, endUtc);
     const targetStudyWindows = calendarLinks.map(l => ({
       calendarLinkId: l.id,
       calendarEventId: l.eventId,
@@ -313,6 +317,46 @@ export class PersonalStateService {
       currentOrNextWindow = upcoming[0] ?? null;
     }
 
+    // Retrieve applicable Time Maps and Constraints for target date
+    const dayOfWeek = getDayOfWeek(date, timezone);
+    let timeMaps: ScheduleTimeMap[] = [];
+    let constraints: ScheduleConstraint[] = [];
+    if (activeBlueprint) {
+      timeMaps = await BlueprintsRepository.getTimeMaps(this.db, activeBlueprint.id, dayOfWeek);
+      constraints = await BlueprintsRepository.getConstraints(this.db, activeBlueprint.id, dayOfWeek);
+    }
+
+    const runtimePolicy: RuntimePolicyContext = {
+      timezone,
+      maxDailyDeepWorkMinutes: activeBlueprint?.maxDailyDeepWorkMinutes ?? DEFAULT_SCHEDULE_BLUEPRINT.maxDailyDeepWorkMinutes,
+      maxDailyFocusContainers: activeBlueprint?.maxDailyFocusContainers ?? DEFAULT_SCHEDULE_BLUEPRINT.maxDailyFocusContainers,
+      maxContinuousSessionMinutes: activeBlueprint?.maxContinuousSessionMinutes ?? DEFAULT_SCHEDULE_BLUEPRINT.maxContinuousSessionMinutes,
+      defaultDecompressionBufferMinutes: activeBlueprint?.defaultDecompressionBufferMinutes ?? DEFAULT_SCHEDULE_BLUEPRINT.defaultDecompressionBufferMinutes,
+      freezeWindowMinutes: activeBlueprint?.freezeWindowMinutes ?? DEFAULT_SCHEDULE_BLUEPRINT.freezeWindowMinutes,
+      bufferDays: activeBlueprint?.bufferDays ?? DEFAULT_SCHEDULE_BLUEPRINT.bufferDays,
+    };
+
+    const blueprintConfig: ScheduleBlueprintConfig = {
+      timezone,
+      maxDailyFocusContainers: runtimePolicy.maxDailyFocusContainers,
+      maxDailyDeepWorkMinutes: runtimePolicy.maxDailyDeepWorkMinutes,
+      maxContinuousSessionMinutes: runtimePolicy.maxContinuousSessionMinutes,
+      defaultDecompressionBufferMinutes: runtimePolicy.defaultDecompressionBufferMinutes,
+      freezeWindowMinutes: runtimePolicy.freezeWindowMinutes,
+      bufferDays: runtimePolicy.bufferDays,
+      containers: timeMaps.length > 0
+        ? timeMaps.map(tm => ({
+            containerId: (tm.containerId as any) ?? 'morning_focus',
+            name: `${tm.activityType.toUpperCase()} Window`,
+            defaultStartTime: tm.startTime,
+            defaultEndTime: tm.endTime,
+            maxDurationMinutes: 150,
+            permittedActivityTypes: [tm.activityType],
+            isOptional: tm.isOptional,
+          }))
+        : DEFAULT_SCHEDULE_BLUEPRINT.containers,
+    };
+
     return {
       totalStudyMinutes,
       completedChaptersCount,
@@ -327,7 +371,12 @@ export class PersonalStateService {
       upcomingTasks,
       targetStudyWindows,
       currentOrNextWindow,
-      blueprint: DEFAULT_SCHEDULE_BLUEPRINT,
+      blueprint: blueprintConfig,
+      activeBlueprint: activeBlueprint ?? undefined,
+      timeMaps,
+      constraints,
+      runtimePolicy,
+      timezone,
     };
   }
 
@@ -555,18 +604,16 @@ export class PersonalStateService {
     timezone?: string;
     currentTimestamp?: string;
   }): Promise<ScheduleContextState> {
-    let timezone = params?.timezone;
-    if (!timezone) {
-      const user = await this.db.selectFrom('users').select('timezone').executeTakeFirst();
-      timezone = user?.timezone ?? 'UTC';
-    }
+    const user = await this.db.selectFrom('users').select(['id', 'timezone']).executeTakeFirst();
+    const activeBlueprint = await BlueprintsRepository.getActiveBlueprint(this.db, user?.id);
+
+    const timezone = params?.timezone ?? activeBlueprint?.timezone ?? user?.timezone ?? 'Asia/Kolkata';
 
     const refTime = params?.currentTimestamp ?? new Date().toISOString();
     const date = params?.date ?? ProjectionEngine.extractDate(refTime, timezone);
 
-    const startOfDay = `${date}T00:00:00.000Z`;
-    const endOfDay = `${date}T23:59:59.999Z`;
-    const calendarLinks = await EntitiesRepository.getCalendarLinks(this.db, startOfDay, endOfDay);
+    const { startUtc, endUtc } = getUtcDayRange(date, timezone);
+    const calendarLinks = await EntitiesRepository.getCalendarLinks(this.db, startUtc, endUtc);
 
     const blocks: ScheduleContextBlock[] = calendarLinks.map(l => ({
       id: l.id,
@@ -605,8 +652,8 @@ export class PersonalStateService {
 
     // Missed sessions
     const missedEvents = await CanonicalEventsRepository.getRecentActivity(this.db, {
-      startDate: startOfDay,
-      endDate: endOfDay,
+      startDate: startUtc,
+      endDate: endUtc,
       eventType: 'schedule_missed',
     });
 
@@ -622,8 +669,8 @@ export class PersonalStateService {
 
     // Linked study sessions for today
     const sessionEvents = await CanonicalEventsRepository.getRecentActivity(this.db, {
-      startDate: startOfDay,
-      endDate: endOfDay,
+      startDate: startUtc,
+      endDate: endUtc,
       eventType: 'study_session_recorded',
     });
 
@@ -637,6 +684,14 @@ export class PersonalStateService {
       };
     });
 
+    const dayOfWeek = getDayOfWeek(date, timezone);
+    let timeMaps: ScheduleTimeMap[] = [];
+    let constraints: ScheduleConstraint[] = [];
+    if (activeBlueprint) {
+      timeMaps = await BlueprintsRepository.getTimeMaps(this.db, activeBlueprint.id, dayOfWeek);
+      constraints = await BlueprintsRepository.getConstraints(this.db, activeBlueprint.id, dayOfWeek);
+    }
+
     return {
       date,
       timezone,
@@ -645,7 +700,31 @@ export class PersonalStateService {
       conflicts,
       missedSessions,
       linkedStudyActivity,
-      blueprint: DEFAULT_SCHEDULE_BLUEPRINT,
+      blueprint: activeBlueprint
+        ? {
+            timezone: activeBlueprint.timezone,
+            maxDailyFocusContainers: activeBlueprint.maxDailyFocusContainers,
+            maxDailyDeepWorkMinutes: activeBlueprint.maxDailyDeepWorkMinutes,
+            maxContinuousSessionMinutes: activeBlueprint.maxContinuousSessionMinutes,
+            defaultDecompressionBufferMinutes: activeBlueprint.defaultDecompressionBufferMinutes,
+            freezeWindowMinutes: activeBlueprint.freezeWindowMinutes,
+            bufferDays: activeBlueprint.bufferDays,
+            containers: timeMaps.length > 0
+              ? timeMaps.map(tm => ({
+                  containerId: (tm.containerId as any) ?? 'morning_focus',
+                  name: `${tm.activityType.toUpperCase()} Window`,
+                  defaultStartTime: tm.startTime,
+                  defaultEndTime: tm.endTime,
+                  maxDurationMinutes: 150,
+                  permittedActivityTypes: [tm.activityType],
+                  isOptional: tm.isOptional,
+                }))
+              : DEFAULT_SCHEDULE_BLUEPRINT.containers,
+          }
+        : DEFAULT_SCHEDULE_BLUEPRINT,
+      activeBlueprint: activeBlueprint ?? undefined,
+      timeMaps,
+      constraints,
     };
   }
 
@@ -1687,17 +1766,20 @@ export class PersonalStateService {
       // Blueprint container boundary soft validation
       let warning: string | undefined;
       if (input.startTime) {
-        const targetDate = input.startTime.split('T')[0];
-        const startOfDay = `${targetDate}T00:00:00.000Z`;
-        const endOfDay = `${targetDate}T23:59:59.999Z`;
-        const dayLinks = await EntitiesRepository.getCalendarLinks(this.db, startOfDay, endOfDay);
+        const user = await this.db.selectFrom('users').select(['id', 'timezone']).executeTakeFirst();
+        const activeBlueprint = await BlueprintsRepository.getActiveBlueprint(this.db, user?.id);
+        const timezone = activeBlueprint?.timezone ?? user?.timezone ?? 'Asia/Kolkata';
+        const targetDate = ProjectionEngine.extractDate(input.startTime, timezone);
+        const { startUtc, endUtc } = getUtcDayRange(targetDate, timezone);
+        const dayLinks = await EntitiesRepository.getCalendarLinks(this.db, startUtc, endUtc);
         const existingIds = new Set(dayLinks.map(l => l.eventId));
         let scheduledCount = dayLinks.length;
         if (input.calendarEventId && !existingIds.has(input.calendarEventId)) {
           scheduledCount += 1;
         }
-        if (scheduledCount > DEFAULT_SCHEDULE_BLUEPRINT.maxDailyFocusContainers) {
-          warning = `Schedule exceeds maximum daily focus containers (${DEFAULT_SCHEDULE_BLUEPRINT.maxDailyFocusContainers}). Scheduled: ${scheduledCount}.`;
+        const maxContainers = activeBlueprint?.maxDailyFocusContainers ?? DEFAULT_SCHEDULE_BLUEPRINT.maxDailyFocusContainers;
+        if (scheduledCount > maxContainers) {
+          warning = `Schedule exceeds maximum daily focus containers (${maxContainers}). Scheduled: ${scheduledCount}.`;
           console.warn(`[PersonalStateService] ${warning}`);
         }
       }

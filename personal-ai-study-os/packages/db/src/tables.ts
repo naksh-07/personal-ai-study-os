@@ -297,8 +297,53 @@ export interface IdempotencyRecordsTable {
   expires_at: string;
 }
 
+// 9. Schedule Blueprint & Runtime Policy Domain (3 Tables)
+export interface ScheduleBlueprintsTable {
+  id: string; // bp_...
+  user_id: string; // usr_...
+  name: string;
+  timezone: string;
+  is_active: number; // 0 | 1
+  version: number;
+  max_daily_deep_work_minutes: number;
+  max_daily_focus_containers: number;
+  max_continuous_session_minutes: number;
+  default_decompression_buffer_minutes: number;
+  freeze_window_minutes: number;
+  buffer_days: string; // JSON array of day indices e.g. '[0]'
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScheduleTimeMapsTable {
+  id: string; // tm_...
+  blueprint_id: string; // bp_...
+  day_of_week: number | null; // 0-6 or null
+  start_time: string; // 'HH:MM'
+  end_time: string; // 'HH:MM'
+  subject_id: string | null; // subj_...
+  activity_type: 'deep_work' | 'pyq_practice' | 'revision' | 'lecture';
+  container_id: string | null;
+  is_optional: number; // 0 | 1
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScheduleConstraintsTable {
+  id: string; // sc_...
+  blueprint_id: string; // bp_...
+  name: string;
+  constraint_type: 'biological_invariant' | 'fixed_commitment' | 'personal_routine' | 'curriculum_buffer';
+  day_of_week: number | null; // 0-6 or null
+  start_time: string; // 'HH:MM'
+  end_time: string; // 'HH:MM'
+  is_hard: number; // 0 | 1
+  created_at: string;
+  updated_at: string;
+}
+
 // ============================================================================
-// Top-Level Database Interface (24 Tables)
+// Top-Level Database Interface (27 Tables)
 // ============================================================================
 
 export interface Database {
@@ -326,4 +371,8 @@ export interface Database {
   checkpoints: CheckpointsTable;
   sync_jobs: SyncJobsTable;
   idempotency_records: IdempotencyRecordsTable;
+  schedule_blueprints: ScheduleBlueprintsTable;
+  schedule_time_maps: ScheduleTimeMapsTable;
+  schedule_constraints: ScheduleConstraintsTable;
 }
+
