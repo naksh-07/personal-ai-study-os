@@ -41,10 +41,13 @@ import {
   LinkScheduleInputSchema,
   RecordScheduleDecisionInput,
   RecordScheduleDecisionInputSchema,
+  MutateMemoryFactInput,
+  MutateMemoryFactInputSchema,
   generateId,
   deriveAccuracy,
   NotFoundError,
   ConflictError,
+  ValidationError,
   MathematicalConstraintError,
   AgentRun,
   Source,
@@ -55,6 +58,7 @@ import {
 import { CanonicalEventEngine, CreateCanonicalEventInput } from './event-engine';
 import { AtomicWriter } from './atomic-writer';
 import { ProjectionEngine } from './projection-engine';
+import { DEFAULT_SCHEDULE_BLUEPRINT } from './blueprint';
 
 export interface IdempotencyContext {
   key?: string;
@@ -323,6 +327,7 @@ export class PersonalStateService {
       upcomingTasks,
       targetStudyWindows,
       currentOrNextWindow,
+      blueprint: DEFAULT_SCHEDULE_BLUEPRINT,
     };
   }
 
@@ -640,6 +645,7 @@ export class PersonalStateService {
       conflicts,
       missedSessions,
       linkedStudyActivity,
+      blueprint: DEFAULT_SCHEDULE_BLUEPRINT,
     };
   }
 
@@ -1105,6 +1111,7 @@ export class PersonalStateService {
           durationSeconds: input.durationSeconds,
           activityType: input.activityType,
           source: input.source,
+          evidenceTier: input.evidenceTier ?? 'user_reported',
         },
         correlationId: input.correlationId,
         causationId: input.causationId,
@@ -1677,6 +1684,24 @@ export class PersonalStateService {
         });
       }
 
+      // Blueprint container boundary soft validation
+      let warning: string | undefined;
+      if (input.startTime) {
+        const targetDate = input.startTime.split('T')[0];
+        const startOfDay = `${targetDate}T00:00:00.000Z`;
+        const endOfDay = `${targetDate}T23:59:59.999Z`;
+        const dayLinks = await EntitiesRepository.getCalendarLinks(this.db, startOfDay, endOfDay);
+        const existingIds = new Set(dayLinks.map(l => l.eventId));
+        let scheduledCount = dayLinks.length;
+        if (input.calendarEventId && !existingIds.has(input.calendarEventId)) {
+          scheduledCount += 1;
+        }
+        if (scheduledCount > DEFAULT_SCHEDULE_BLUEPRINT.maxDailyFocusContainers) {
+          warning = `Schedule exceeds maximum daily focus containers (${DEFAULT_SCHEDULE_BLUEPRINT.maxDailyFocusContainers}). Scheduled: ${scheduledCount}.`;
+          console.warn(`[PersonalStateService] ${warning}`);
+        }
+      }
+
       await AtomicWriter.ingestAndProjectAtomic(this.d1, this.db, { event });
 
       return {
@@ -1691,6 +1716,172 @@ export class PersonalStateService {
           scheduleLinkId,
           calendarLinkId,
           eventId: event.eventId,
+          ...(warning ? { warning } : {}),
+        },
+      };
+    });
+  }
+
+  /**
+   * mutate_memory_fact:
+   * Explicit semantic memory mutation service supporting ADD, UPDATE, and INVALIDATE operations.
+   * Maintains memory_facts and memory_versions tables, emits canonical events, and wraps with idempotency.
+   */
+  async mutateMemoryFact(
+    rawInput: MutateMemoryFactInput,
+    idempotency?: IdempotencyContext
+  ): Promise<MutationResult> {
+    const input = MutateMemoryFactInputSchema.parse(rawInput);
+
+    return this.withIdempotency('mutate_memory_fact', idempotency, input, async () => {
+      const now = new Date().toISOString();
+      const actorId = input.actorId ?? 'usr_operator';
+      const actorType = actorId.startsWith('usr') ? 'user' : 'agent';
+
+      let factId: string;
+      let event: CanonicalEvent;
+
+      if (input.operation === 'ADD') {
+        factId = generateId('mem');
+        const validAt = input.validAt ?? now;
+
+        await EntitiesRepository.insertMemoryFact(this.db, {
+          id: factId,
+          fact: input.fact!,
+          category: input.category!,
+          validAt,
+          invalidAt: null,
+          createdAt: now,
+        });
+
+        await EntitiesRepository.insertMemoryVersion(this.db, {
+          id: generateId('memver'),
+          memoryFactId: factId,
+          operation: 'ADD',
+          previousFact: null,
+          newFact: input.fact!,
+          actorId,
+          createdAt: now,
+        });
+
+        event = CanonicalEventEngine.createEvent({
+          eventType: 'memory_added',
+          actor: { type: actorType, id: actorId },
+          source: { system: 'antigravity', interface: 'mcp' },
+          payload: {
+            factId,
+            fact: input.fact!,
+            category: input.category!,
+            validAt,
+          },
+          correlationId: input.correlationId,
+          causationId: input.causationId,
+        });
+      } else if (input.operation === 'UPDATE') {
+        const existing = await EntitiesRepository.getMemoryFact(this.db, input.factId!);
+        if (!existing) {
+          throw new NotFoundError('ENTITY_NOT_FOUND', `Memory fact '${input.factId}' not found.`);
+        }
+
+        const validAt = input.validAt ?? now;
+        const invalidAt = input.invalidAt ?? now;
+
+        // Invalidate old fact
+        await EntitiesRepository.invalidateMemoryFact(this.db, existing.id, invalidAt);
+
+        // Insert new fact row
+        factId = generateId('mem');
+        await EntitiesRepository.insertMemoryFact(this.db, {
+          id: factId,
+          fact: input.fact!,
+          category: input.category ?? existing.category,
+          validAt,
+          invalidAt: null,
+          createdAt: now,
+        });
+
+        // Record versions for both existing and new fact
+        await EntitiesRepository.insertMemoryVersion(this.db, {
+          id: generateId('memver'),
+          memoryFactId: existing.id,
+          operation: 'UPDATE',
+          previousFact: existing.fact,
+          newFact: input.fact!,
+          actorId,
+          createdAt: now,
+        });
+
+        await EntitiesRepository.insertMemoryVersion(this.db, {
+          id: generateId('memver'),
+          memoryFactId: factId,
+          operation: 'UPDATE',
+          previousFact: existing.fact,
+          newFact: input.fact!,
+          actorId,
+          createdAt: now,
+        });
+
+        event = CanonicalEventEngine.createEvent({
+          eventType: 'memory_updated',
+          actor: { type: actorType, id: actorId },
+          source: { system: 'antigravity', interface: 'mcp' },
+          payload: {
+            factId: existing.id,
+            previousFact: existing.fact,
+            newFact: input.fact!,
+            validAt,
+          },
+          correlationId: input.correlationId,
+          causationId: input.causationId,
+        });
+      } else if (input.operation === 'INVALIDATE') {
+        const existing = await EntitiesRepository.getMemoryFact(this.db, input.factId!);
+        if (!existing) {
+          throw new NotFoundError('ENTITY_NOT_FOUND', `Memory fact '${input.factId}' not found.`);
+        }
+
+        factId = existing.id;
+        const invalidAt = input.invalidAt ?? now;
+
+        await EntitiesRepository.invalidateMemoryFact(this.db, factId, invalidAt);
+
+        await EntitiesRepository.insertMemoryVersion(this.db, {
+          id: generateId('memver'),
+          memoryFactId: factId,
+          operation: 'INVALIDATE',
+          previousFact: existing.fact,
+          newFact: null,
+          actorId,
+          createdAt: now,
+        });
+
+        event = CanonicalEventEngine.createEvent({
+          eventType: 'memory_invalidated',
+          actor: { type: actorType, id: actorId },
+          source: { system: 'antigravity', interface: 'mcp' },
+          payload: {
+            factId,
+            invalidAt,
+          },
+          correlationId: input.correlationId,
+          causationId: input.causationId,
+        });
+      } else {
+        throw new Error(`Unsupported memory fact operation: ${(input as any).operation}`);
+      }
+
+      await AtomicWriter.ingestAndProjectAtomic(this.d1, this.db, { event });
+
+      return {
+        success: true,
+        operation: 'mutate_memory_fact',
+        eventId: event.eventId,
+        entityId: factId,
+        data: {
+          factId,
+          operation: input.operation,
+          targetFactId: input.factId,
+          category: input.category,
         },
       };
     });

@@ -674,6 +674,187 @@ describe('Slice 4: End-to-End Production Integration Suite', () => {
 
       expect(allSchedLinks.length).toBe(1);
     });
+
+    it('E2E-07: Full Daily Lifecycle with Blueprint, Evidence, and Memory', async () => {
+      // 1. Fetch study state (asserts blueprint container bounds)
+      const stateRes = await app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${writeToken}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'e2e_req_1',
+          method: 'tools/call',
+          params: {
+            name: 'get_study_state',
+            arguments: { date: '2026-09-12' },
+          },
+        }),
+      }, {
+        DB: ctx.d1,
+        ENVIRONMENT: 'test',
+        JWT_SECRET: testSecret,
+      });
+
+      expect(stateRes.status).toBe(200);
+      const stateJson: any = await stateRes.json();
+      const studyState = JSON.parse(stateJson.result.content[0].text);
+      expect(studyState.blueprint).toBeDefined();
+      expect(studyState.blueprint.containers).toHaveLength(3);
+      expect(studyState.blueprint.maxDailyFocusContainers).toBe(3);
+
+      // 2. Record schedule decision for Morning Focus block
+      const schedRes = await app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${writeToken}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'e2e_req_2',
+          method: 'tools/call',
+          params: {
+            name: 'record_schedule_decision',
+            arguments: {
+              decisionType: 'schedule_allocated',
+              decision: 'Allocate Morning Focus Block for Metabolism',
+              calendarEventId: 'cal_e2e_morning_01',
+              startTime: '2026-09-12T09:00:00.000Z',
+              endTime: '2026-09-12T11:30:00.000Z',
+              chapterId: testChapterId,
+            },
+          },
+        }),
+      }, {
+        DB: ctx.d1,
+        ENVIRONMENT: 'test',
+        JWT_SECRET: testSecret,
+      });
+
+      expect(schedRes.status).toBe(200);
+      const schedJson: any = await schedRes.json();
+      const schedData = JSON.parse(schedJson.result.content[0].text);
+      expect(schedData.success).toBe(true);
+
+      // 3. Complete study session with evidenceTier: 'observed'
+      const sessionRes = await app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${writeToken}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'e2e_req_3',
+          method: 'tools/call',
+          params: {
+            name: 'record_study_session',
+            arguments: {
+              subjectId: testSubjectId,
+              chapterId: testChapterId,
+              startedAt: '2026-09-12T09:00:00.000Z',
+              endedAt: '2026-09-12T11:00:00.000Z',
+              durationSeconds: 7200,
+              activityType: 'deep_work',
+              evidenceTier: 'observed',
+              questionsAttempted: 15,
+              questionsCorrect: 12,
+            },
+          },
+        }),
+      }, {
+        DB: ctx.d1,
+        ENVIRONMENT: 'test',
+        JWT_SECRET: testSecret,
+      });
+
+      expect(sessionRes.status).toBe(200);
+      const sessionJson: any = await sessionRes.json();
+      const sessionData = JSON.parse(sessionJson.result.content[0].text);
+      expect(sessionData.success).toBe(true);
+
+      // Verify evidenceTier in canonical event
+      const sessionEvt = await ctx.db
+        .selectFrom('canonical_events')
+        .selectAll()
+        .where('event_id', '=', sessionData.eventId)
+        .executeTakeFirst();
+      expect(sessionEvt).toBeDefined();
+      const sessionPayload = JSON.parse(sessionEvt!.payload);
+      expect(sessionPayload.evidenceTier).toBe('observed');
+
+      // 4. Mutate memory fact with operation: 'ADD'
+      const memRes = await app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${writeToken}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'e2e_req_4',
+          method: 'tools/call',
+          params: {
+            name: 'mutate_memory_fact',
+            arguments: {
+              operation: 'ADD',
+              category: 'preference',
+              fact: 'Metabolism study sessions are optimal during morning focus containers',
+            },
+          },
+        }),
+      }, {
+        DB: ctx.d1,
+        ENVIRONMENT: 'test',
+        JWT_SECRET: testSecret,
+      });
+
+      expect(memRes.status).toBe(200);
+      const memJson: any = await memRes.json();
+      const memData = JSON.parse(memJson.result.content[0].text);
+      expect(memData.success).toBe(true);
+
+      // Verify memory fact active in D1
+      const fact = await ctx.db
+        .selectFrom('memory_facts')
+        .selectAll()
+        .where('id', '=', memData.entityId)
+        .executeTakeFirst();
+      expect(fact).toBeDefined();
+      expect(fact?.invalid_at).toBeNull();
+
+      // 5. Reconcile evening state (asserts calendar stability and progress projection)
+      const eveningStateRes = await app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${writeToken}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'e2e_req_5',
+          method: 'tools/call',
+          params: {
+            name: 'get_today_state',
+            arguments: { date: '2026-09-12' },
+          },
+        }),
+      }, {
+        DB: ctx.d1,
+        ENVIRONMENT: 'test',
+        JWT_SECRET: testSecret,
+      });
+
+      expect(eveningStateRes.status).toBe(200);
+      const eveningJson: any = await eveningStateRes.json();
+      const todayState = JSON.parse(eveningJson.result.content[0].text);
+      expect(todayState.studyProgress.studyMinutes).toBe(120);
+      expect(todayState.studyProgress.accuracy).toBe(0.8);
+      expect(todayState.completedActivity.recentSessions.length).toBeGreaterThanOrEqual(1);
+    });
   });
 });
 

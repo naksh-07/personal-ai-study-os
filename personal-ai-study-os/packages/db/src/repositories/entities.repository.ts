@@ -818,6 +818,27 @@ export class EntitiesRepository {
     }));
   }
 
+  static async getMemoryFact(db: Kysely<Database>, id: string): Promise<MemoryFact | null> {
+    const row = await db.selectFrom('memory_facts').selectAll().where('id', '=', id).executeTakeFirst();
+    if (!row) return null;
+    return {
+      id: row.id,
+      fact: row.fact,
+      category: row.category,
+      validAt: row.valid_at,
+      invalidAt: row.invalid_at,
+      createdAt: row.created_at,
+    };
+  }
+
+  static async invalidateMemoryFact(db: Kysely<Database>, id: string, invalidAt: string) {
+    return await db
+      .updateTable('memory_facts')
+      .set({ invalid_at: invalidAt })
+      .where('id', '=', id)
+      .execute();
+  }
+
   static async insertMemoryVersion(db: Kysely<Database>, version: MemoryVersion) {
     return await db
       .insertInto('memory_versions')

@@ -287,6 +287,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         duration_seconds: { type: 'number' },
         activityType: { type: 'string', enum: ['revision', 'pyq_practice', 'lecture', 'deep_work'] },
         activity_type: { type: 'string', enum: ['revision', 'pyq_practice', 'lecture', 'deep_work'] },
+        evidenceTier: { type: 'string', enum: ['user_reported', 'observed', 'derived', 'inferred'] },
+        evidence_tier: { type: 'string' },
         idempotency_key: { type: 'string' },
       },
     },
@@ -319,6 +321,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
           startedAt,
           endedAt,
           source: 'mcp',
+          evidenceTier: args?.evidenceTier || args?.evidence_tier,
           questionsAttempted: Number(args?.questionsAttempted ?? args?.questions_attempted ?? 0),
           questionsCorrect: Number(args?.questionsCorrect ?? args?.questions_correct ?? 0),
         },
@@ -829,6 +832,72 @@ export const MCP_TOOLS: McpToolDefinition[] = [
           causationId: args?.causationId || args?.causation_id,
         },
         idempKey ? { key: idempKey, sourceSystem: 'spark' } : undefined
+      );
+    },
+  },
+  {
+    name: 'mutate_memory_fact',
+    description: 'Explicitly mutates semantic memory (ADD, UPDATE, or INVALIDATE) with version tracking, temporal validity, and canonical event emission.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        operation: {
+          type: 'string',
+          enum: ['ADD', 'UPDATE', 'INVALIDATE'],
+          description: 'Mutation operation to perform: ADD, UPDATE, or INVALIDATE',
+        },
+        category: {
+          type: 'string',
+          enum: ['convention', 'preference', 'constraint', 'pattern'],
+          description: 'Memory category (required for ADD, optional for UPDATE/INVALIDATE)',
+        },
+        fact: {
+          type: 'string',
+          description: 'Fact text content (required for ADD and UPDATE)',
+        },
+        factId: {
+          type: 'string',
+          description: 'Canonical memory fact ID mem_... (required for UPDATE and INVALIDATE)',
+        },
+        fact_id: { type: 'string' },
+        reason: { type: 'string', description: 'Justification for memory mutation' },
+        actorId: { type: 'string', description: 'Actor ID performing mutation (defaults to caller)' },
+        actor_id: { type: 'string' },
+        validAt: { type: 'string', description: 'ISO 8601 validity start timestamp' },
+        valid_at: { type: 'string' },
+        invalidAt: { type: 'string', description: 'ISO 8601 invalidation timestamp' },
+        invalid_at: { type: 'string' },
+        correlationId: { type: 'string' },
+        correlation_id: { type: 'string' },
+        causationId: { type: 'string' },
+        causation_id: { type: 'string' },
+        idempotency_key: { type: 'string', description: 'Unique client idempotency key' },
+        idempotencyKey: { type: 'string' },
+      },
+      required: ['operation'],
+    },
+    handler: async (service, args) => {
+      const operation = args?.operation;
+      if (!operation) {
+        throw new ValidationError("Parameter 'operation' is required for mutate_memory_fact");
+      }
+      const idempKey = args?.idempotency_key || args?.idempotencyKey;
+
+      return await service.mutateMemoryFact(
+        {
+          operation,
+          category: args?.category,
+          fact: args?.fact,
+          factId: args?.factId || args?.fact_id,
+          reason: args?.reason,
+          actorId: args?.actorId || args?.actor_id,
+          validAt: args?.validAt || args?.valid_at,
+          invalidAt: args?.invalidAt || args?.invalid_at,
+          correlationId: args?.correlationId || args?.correlation_id,
+          causationId: args?.causationId || args?.causation_id,
+        },
+        idempKey ? { key: idempKey, sourceSystem: 'mcp' } : undefined
       );
     },
   },

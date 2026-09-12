@@ -4,4 +4,4 @@ export * from './atomic-writer';
 export * from './reconciliation';
 export * from './reliability-engine';
 export * from './personal-state-service';
-
+export * from './blueprint';

@@ -53,6 +53,32 @@ export type Chapter = z.infer<typeof ChapterSchema>;
 export const StudyActivityTypeSchema = z.enum(['revision', 'pyq_practice', 'lecture', 'deep_work']);
 export type StudyActivityType = z.infer<typeof StudyActivityTypeSchema>;
 
+export const EvidenceTierSchema = z.enum(['user_reported', 'observed', 'derived', 'inferred']);
+export type EvidenceTier = z.infer<typeof EvidenceTierSchema>;
+
+export const FocusContainerIdSchema = z.enum(['morning_focus', 'afternoon_practice', 'evening_consolidation']);
+export type FocusContainerId = z.infer<typeof FocusContainerIdSchema>;
+
+export const FocusContainerDefinitionSchema = z.object({
+  containerId: FocusContainerIdSchema,
+  name: z.string().min(1),
+  defaultStartTime: z.string().min(1),
+  defaultEndTime: z.string().min(1),
+  maxDurationMinutes: z.number().int().min(1),
+  permittedActivityTypes: z.array(StudyActivityTypeSchema),
+  isOptional: z.boolean(),
+});
+export type FocusContainerDefinition = z.infer<typeof FocusContainerDefinitionSchema>;
+
+export const ScheduleBlueprintConfigSchema = z.object({
+  timezone: z.string().default('UTC'),
+  maxDailyFocusContainers: z.number().int().min(1).default(3),
+  maxDailyDeepWorkMinutes: z.number().int().min(1).default(270),
+  bufferDays: z.array(z.number().int().min(0).max(6)).default([0]),
+  containers: z.array(FocusContainerDefinitionSchema),
+});
+export type ScheduleBlueprintConfig = z.infer<typeof ScheduleBlueprintConfigSchema>;
+
 export const StudySessionStatusSchema = z.enum(['completed', 'interrupted']);
 export type StudySessionStatus = z.infer<typeof StudySessionStatusSchema>;
 
@@ -514,6 +540,7 @@ export interface StudyState {
     entityType?: string;
     entityId?: string;
   } | null;
+  blueprint?: ScheduleBlueprintConfig;
 }
 
 export interface ChapterHierarchyItem {
@@ -637,6 +664,7 @@ export interface ScheduleContextState {
     startsAt: string;
     endsAt: string;
   }>;
+  blueprint?: ScheduleBlueprintConfig;
 }
 
 export interface MemorySearchItem {
@@ -718,6 +746,7 @@ export const RecordStudySessionInputSchema = z.object({
   durationSeconds: z.number().int().min(0),
   activityType: StudyActivityTypeSchema.default('deep_work'),
   source: z.string().default('rest_api'),
+  evidenceTier: EvidenceTierSchema.optional().default('user_reported'),
   questionsAttempted: z.number().int().min(0).default(0),
   questionsCorrect: z.number().int().min(0).default(0),
   notes: z.string().optional(),
@@ -851,6 +880,43 @@ export const RecordScheduleDecisionInputSchema = z.object({
 );
 export type RecordScheduleDecisionInput = z.input<typeof RecordScheduleDecisionInputSchema>;
 export type RecordScheduleDecisionParsed = z.infer<typeof RecordScheduleDecisionInputSchema>;
+
+export const MemoryFactOperationSchema = z.enum(['ADD', 'UPDATE', 'INVALIDATE']);
+export type MemoryFactOperation = z.infer<typeof MemoryFactOperationSchema>;
+
+export const MemoryFactCategorySchema = z.enum(['convention', 'preference', 'constraint', 'pattern']);
+export type MemoryFactCategory = z.infer<typeof MemoryFactCategorySchema>;
+
+export const MutateMemoryFactInputSchema = z.object({
+  operation: MemoryFactOperationSchema,
+  category: MemoryFactCategorySchema.optional(),
+  fact: z.string().min(1).optional(),
+  factId: z.string().startsWith('mem_').optional(),
+  reason: z.string().optional(),
+  actorId: z.string().optional(),
+  validAt: z.string().datetime().optional(),
+  invalidAt: z.string().datetime().optional(),
+  correlationId: z.string().optional(),
+  causationId: z.string().optional(),
+}).refine(
+  data => {
+    if (data.operation === 'ADD') {
+      return !!data.fact && !!data.category;
+    }
+    if (data.operation === 'UPDATE') {
+      return !!data.factId && !!data.fact;
+    }
+    if (data.operation === 'INVALIDATE') {
+      return !!data.factId;
+    }
+    return true;
+  },
+  {
+    message: "ADD requires 'fact' and 'category'; UPDATE requires 'factId' and 'fact'; INVALIDATE requires 'factId'",
+  }
+);
+export type MutateMemoryFactInput = z.input<typeof MutateMemoryFactInputSchema>;
+export type MutateMemoryFactParsed = z.infer<typeof MutateMemoryFactInputSchema>;
 
 // ============================================================================
 // 9. QUEUE MESSAGE ENVELOPE (Spec v1.2.3 Section 8.3)

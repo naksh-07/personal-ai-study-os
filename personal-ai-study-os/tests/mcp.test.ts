@@ -232,7 +232,7 @@ describe('Slice 4: Remote MCP Server (Streamable HTTP 2026-07-28 & Semantic Tool
       expect(res.status).toBe(200);
       const json: any = await res.json();
       const tools = json.result.tools;
-      expect(tools.length).toBe(26);
+      expect(tools.length).toBe(27);
 
       const toolNames = tools.map((t: any) => t.name);
       // 12 Read tools
@@ -249,7 +249,7 @@ describe('Slice 4: Remote MCP Server (Streamable HTTP 2026-07-28 & Semantic Tool
       expect(toolNames).toContain('get_agent_state');
       expect(toolNames).toContain('get_source_state');
 
-      // 13 Write tools
+      // 14 Write tools
       expect(toolNames).toContain('record_event');
       expect(toolNames).toContain('record_study_session');
       expect(toolNames).toContain('update_progress');
@@ -257,6 +257,7 @@ describe('Slice 4: Remote MCP Server (Streamable HTTP 2026-07-28 & Semantic Tool
       expect(toolNames).toContain('record_research');
       expect(toolNames).toContain('record_decision');
       expect(toolNames).toContain('record_schedule_decision');
+      expect(toolNames).toContain('mutate_memory_fact');
       expect(toolNames).toContain('link_task');
       expect(toolNames).toContain('link_calendar_event');
       expect(toolNames).toContain('record_project_event');
@@ -605,7 +606,7 @@ describe('Slice 4: Remote MCP Server (Streamable HTTP 2026-07-28 & Semantic Tool
 
       expect(msgRes1.status).toBe(200);
       const json1: any = await msgRes1.json();
-      expect(json1.result.tools.length).toBe(26);
+      expect(json1.result.tools.length).toBe(27);
 
       const msgRes2 = await app.request('/mcp/messages', {
         method: 'POST',
@@ -622,7 +623,7 @@ describe('Slice 4: Remote MCP Server (Streamable HTTP 2026-07-28 & Semantic Tool
 
       expect(msgRes2.status).toBe(200);
       const json2: any = await msgRes2.json();
-      expect(json2.result.tools.length).toBe(26);
+      expect(json2.result.tools.length).toBe(27);
     });
   });
 
@@ -666,6 +667,8 @@ describe('Slice 4: Remote MCP Server (Streamable HTTP 2026-07-28 & Semantic Tool
       expect(state.targetStudyWindows).toBeDefined();
       expect(Array.isArray(state.targetStudyWindows)).toBe(true);
       expect(state).toHaveProperty('currentOrNextWindow');
+      expect(state.blueprint).toBeDefined();
+      expect(state.blueprint.containers).toHaveLength(3);
     });
 
     it('record_schedule_decision rejects invocation with read-only token', async () => {
@@ -839,6 +842,102 @@ describe('Slice 4: Remote MCP Server (Streamable HTTP 2026-07-28 & Semantic Tool
       expect(content2.success).toBe(true);
       expect(content2.replayed).toBe(true);
       expect(content2.entityId).toBe(content1.entityId);
+    });
+
+    it('mutate_memory_fact rejects invocation with read-only token', async () => {
+      const res = await app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${readToken}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'mem_unauth_write',
+          method: 'tools/call',
+          params: {
+            name: 'mutate_memory_fact',
+            arguments: {
+              operation: 'ADD',
+              category: 'preference',
+              fact: 'Prefers 25 min sessions',
+            },
+          },
+        }),
+      }, makeEnv());
+
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.error).toBeDefined();
+      expect(json.error.message).toContain("requires 'write' scope");
+    });
+
+    it('mutate_memory_fact is forbidden for Gemini Spark client', async () => {
+      const sparkToken = makeJwt({
+        sub: 'gemini-spark',
+        client_id: 'gemini-spark',
+        aud: 'personal-ai-study-os',
+        scope: 'read write',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      });
+
+      const res = await app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sparkToken}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'spark_mem_write',
+          method: 'tools/call',
+          params: {
+            name: 'mutate_memory_fact',
+            arguments: {
+              operation: 'ADD',
+              category: 'preference',
+              fact: 'Prefers morning blocks',
+            },
+          },
+        }),
+      }, makeEnv());
+
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.error).toBeDefined();
+      expect(json.error.message).toContain('Forbidden: Tool \'mutate_memory_fact\' is not permitted for Gemini Spark client');
+    });
+
+    it('mutate_memory_fact executes ADD successfully with write token', async () => {
+      const res = await app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${writeToken}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'mem_valid_add',
+          method: 'tools/call',
+          params: {
+            name: 'mutate_memory_fact',
+            arguments: {
+              operation: 'ADD',
+              category: 'convention',
+              fact: 'Always review flashcards before bed',
+              idempotency_key: 'idemp_mem_add_001',
+            },
+          },
+        }),
+      }, makeEnv());
+
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.error).toBeUndefined();
+      const content = JSON.parse(json.result.content[0].text);
+      expect(content.success).toBe(true);
+      expect(content.operation).toBe('mutate_memory_fact');
+      expect(content.entityId).toMatch(/^mem_/);
     });
   });
 });

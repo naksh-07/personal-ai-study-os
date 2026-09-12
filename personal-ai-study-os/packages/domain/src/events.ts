@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EvidenceTierSchema } from './entities';
 
 // ============================================================================
 // Canonical Event Envelope Primitives
@@ -86,6 +87,7 @@ export const StudySessionRecordedPayloadSchema = z.object({
   durationSeconds: z.number().int().min(0),
   activityType: z.enum(['revision', 'pyq_practice', 'lecture', 'deep_work']),
   source: z.string().default('google_calendar'),
+  evidenceTier: EvidenceTierSchema.optional().default('user_reported'),
 }).refine(data => new Date(data.endedAt).getTime() >= new Date(data.startedAt).getTime(), {
   message: 'endedAt must be >= startedAt',
   path: ['endedAt'],

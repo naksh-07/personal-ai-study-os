@@ -117,6 +117,9 @@ describe('Slice 3: PersonalStateService', () => {
     expect(studyState.subjectSummaries).toHaveLength(1);
     expect(studyState.subjectSummaries[0].subjectId).toBe(testSubjectId);
     expect(studyState.recentActivity.length).toBeGreaterThan(0);
+    expect(studyState.blueprint).toBeDefined();
+    expect(studyState.blueprint?.containers).toHaveLength(3);
+    expect(studyState.blueprint?.maxDailyFocusContainers).toBe(3);
   });
 
   it('3. getSubjectState returns recursive chapter tree and stable IDs', async () => {
@@ -313,6 +316,8 @@ describe('Slice 3: PersonalStateService', () => {
     expect(context.conflicts[0].blockB.calendarEventId).toBe('cal_event_2');
     expect(context.missedSessions).toHaveLength(1);
     expect(context.missedSessions[0].reason).toBe('Overslept');
+    expect(context.blueprint).toBeDefined();
+    expect(context.blueprint?.containers).toHaveLength(3);
   });
 
   it('8. searchMemory retrieves facts with version history, decisions, and research', async () => {
@@ -799,5 +804,227 @@ describe('Slice 3: PersonalStateService', () => {
     expect(res2.success).toBe(true);
     expect(res2.replayed).toBe(true);
     expect(res2.entityId).toBe(res1.entityId);
+  });
+
+  it('28. recordStudySession records evidenceTier in canonical event payload', async () => {
+    // 1. Session with explicit evidenceTier
+    const res1 = await service.recordStudySession({
+      subjectId: testSubjectId,
+      chapterId: testChapterId1,
+      startedAt: '2026-09-11T12:00:00.000Z',
+      endedAt: '2026-09-11T13:00:00.000Z',
+      durationSeconds: 3600,
+      activityType: 'deep_work',
+      source: 'google_calendar',
+      evidenceTier: 'observed',
+    });
+    expect(res1.success).toBe(true);
+    const event1 = await CanonicalEventsRepository.getById(ctx.db, res1.eventId!);
+    expect(event1?.payload).toMatchObject({
+      evidenceTier: 'observed',
+    });
+
+    // 2. Session with default evidenceTier
+    const res2 = await service.recordStudySession({
+      subjectId: testSubjectId,
+      chapterId: testChapterId1,
+      startedAt: '2026-09-11T13:00:00.000Z',
+      endedAt: '2026-09-11T14:00:00.000Z',
+      durationSeconds: 3600,
+      activityType: 'revision',
+      source: 'google_calendar',
+    });
+    expect(res2.success).toBe(true);
+    const event2 = await CanonicalEventsRepository.getById(ctx.db, res2.eventId!);
+    expect(event2?.payload).toMatchObject({
+      evidenceTier: 'user_reported',
+    });
+  });
+
+  it('29. recordScheduleDecision returns soft warning when scheduled containers exceed maxDailyFocusContainers', async () => {
+    const targetDate = '2026-09-15';
+    // Create 3 existing calendar links on this day (maxDailyFocusContainers is 3)
+    for (let i = 1; i <= 3; i++) {
+      await EntitiesRepository.upsertCalendarLink(ctx.db, {
+        id: generateId('callink'),
+        provider: 'google_calendar',
+        calendarId: 'primary',
+        eventId: `cal_event_existing_${i}`,
+        entityType: 'study_session',
+        entityId: testChapterId1,
+        titleSnapshot: `Session ${i}`,
+        startsAt: `${targetDate}T${String(8 + i * 2).padStart(2, '0')}:00:00.000Z`,
+        endsAt: `${targetDate}T${String(9 + i * 2).padStart(2, '0')}:00:00.000Z`,
+        statusSnapshot: 'confirmed',
+        lastSyncedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    // Now record a 4th schedule decision on the same day -> triggers soft warning
+    const res = await service.recordScheduleDecision({
+      decision: 'Adding 4th block to target date',
+      calendarEventId: 'cal_event_exceeding_4',
+      startTime: `${targetDate}T18:00:00.000Z`,
+      endTime: `${targetDate}T19:00:00.000Z`,
+    });
+
+    expect(res.success).toBe(true);
+    expect((res.data as any)?.warning).toBeDefined();
+    expect((res.data as any)?.warning).toContain('Schedule exceeds maximum daily focus containers');
+  });
+
+  it('30. mutateMemoryFact handles ADD operation, persisting fact, version, and canonical event', async () => {
+    const res = await service.mutateMemoryFact({
+      operation: 'ADD',
+      category: 'preference',
+      fact: 'Prefers Pomodoro 50/10 intervals for pharmacology',
+      actorId: 'usr_operator',
+    });
+
+    expect(res.success).toBe(true);
+    expect(res.operation).toBe('mutate_memory_fact');
+    expect(res.entityId).toMatch(/^mem_/);
+
+    // Verify row in memory_facts
+    const fact = await EntitiesRepository.getMemoryFact(ctx.db, res.entityId!);
+    expect(fact).not.toBeNull();
+    expect(fact?.fact).toBe('Prefers Pomodoro 50/10 intervals for pharmacology');
+    expect(fact?.category).toBe('preference');
+    expect(fact?.invalidAt).toBeNull();
+
+    // Verify row in memory_versions
+    const versions = await EntitiesRepository.getMemoryVersions(ctx.db, res.entityId!);
+    expect(versions).toHaveLength(1);
+    expect(versions[0].operation).toBe('ADD');
+    expect(versions[0].newFact).toBe('Prefers Pomodoro 50/10 intervals for pharmacology');
+
+    // Verify canonical event
+    const event = await CanonicalEventsRepository.getById(ctx.db, res.eventId!);
+    expect(event?.eventType).toBe('memory_added');
+    expect((event?.payload as any)?.factId).toBe(res.entityId);
+  });
+
+  it('31. mutateMemoryFact handles UPDATE operation, invalidating prior fact and persisting new fact + versions', async () => {
+    // 1. ADD initial fact
+    const addRes = await service.mutateMemoryFact({
+      operation: 'ADD',
+      category: 'convention',
+      fact: 'Morning review begins at 08:30',
+    });
+    const originalFactId = addRes.entityId!;
+
+    // 2. UPDATE fact
+    const updateRes = await service.mutateMemoryFact({
+      operation: 'UPDATE',
+      factId: originalFactId,
+      fact: 'Morning review begins at 09:00',
+      reason: 'Shifted schedule for morning routine',
+    });
+
+    expect(updateRes.success).toBe(true);
+    const newFactId = updateRes.entityId!;
+    expect(newFactId).not.toBe(originalFactId);
+
+    // Verify original fact invalidated
+    const originalFact = await EntitiesRepository.getMemoryFact(ctx.db, originalFactId);
+    expect(originalFact?.invalidAt).not.toBeNull();
+
+    // Verify new fact is active
+    const newFact = await EntitiesRepository.getMemoryFact(ctx.db, newFactId);
+    expect(newFact?.fact).toBe('Morning review begins at 09:00');
+    expect(newFact?.category).toBe('convention');
+    expect(newFact?.invalidAt).toBeNull();
+
+    // Verify versions logged
+    const originalVersions = await EntitiesRepository.getMemoryVersions(ctx.db, originalFactId);
+    expect(originalVersions.some(v => v.operation === 'UPDATE')).toBe(true);
+
+    const newVersions = await EntitiesRepository.getMemoryVersions(ctx.db, newFactId);
+    expect(newVersions.some(v => v.operation === 'UPDATE')).toBe(true);
+
+    // Verify canonical event
+    const event = await CanonicalEventsRepository.getById(ctx.db, updateRes.eventId!);
+    expect(event?.eventType).toBe('memory_updated');
+    expect((event?.payload as any)?.factId).toBe(originalFactId);
+    expect((event?.payload as any)?.previousFact).toBe('Morning review begins at 08:30');
+    expect((event?.payload as any)?.newFact).toBe('Morning review begins at 09:00');
+  });
+
+  it('32. mutateMemoryFact handles INVALIDATE operation, setting invalid_at and logging version', async () => {
+    // 1. ADD initial fact
+    const addRes = await service.mutateMemoryFact({
+      operation: 'ADD',
+      category: 'constraint',
+      fact: 'Do not study after 22:00',
+    });
+    const factId = addRes.entityId!;
+
+    // 2. INVALIDATE fact
+    const invRes = await service.mutateMemoryFact({
+      operation: 'INVALIDATE',
+      factId,
+      reason: 'Exam week crunch',
+    });
+
+    expect(invRes.success).toBe(true);
+    expect(invRes.entityId).toBe(factId);
+
+    // Verify invalidated in memory_facts
+    const fact = await EntitiesRepository.getMemoryFact(ctx.db, factId);
+    expect(fact?.invalidAt).not.toBeNull();
+
+    // Verify version in memory_versions
+    const versions = await EntitiesRepository.getMemoryVersions(ctx.db, factId);
+    expect(versions.some(v => v.operation === 'INVALIDATE')).toBe(true);
+
+    // Verify canonical event
+    const event = await CanonicalEventsRepository.getById(ctx.db, invRes.eventId!);
+    expect(event?.eventType).toBe('memory_invalidated');
+    expect((event?.payload as any)?.factId).toBe(factId);
+  });
+
+  it('33. mutateMemoryFact supports idempotent replay', async () => {
+    const idempKey = 'idemp_mem_test_replay_001';
+    const payload = {
+      operation: 'ADD' as const,
+      category: 'pattern' as const,
+      fact: 'High retention when testing within 24 hours of lecture',
+    };
+
+    const res1 = await service.mutateMemoryFact(payload, { key: idempKey, sourceSystem: 'mcp' });
+    expect(res1.success).toBe(true);
+
+    const res2 = await service.mutateMemoryFact(payload, { key: idempKey, sourceSystem: 'mcp' });
+    expect(res2.success).toBe(true);
+    expect(res2.replayed).toBe(true);
+    expect(res2.entityId).toBe(res1.entityId);
+  });
+
+  it('34. mutateMemoryFact validates input parameters (missing fields, nonexistent fact)', async () => {
+    // 1. ADD missing fact/category
+    await expect(
+      service.mutateMemoryFact({
+        operation: 'ADD',
+        fact: '',
+      } as any)
+    ).rejects.toThrow();
+
+    // 2. UPDATE missing factId
+    await expect(
+      service.mutateMemoryFact({
+        operation: 'UPDATE',
+        fact: 'Updated fact text',
+      } as any)
+    ).rejects.toThrow();
+
+    // 3. INVALIDATE non-existent fact
+    await expect(
+      service.mutateMemoryFact({
+        operation: 'INVALIDATE',
+        factId: 'mem_nonexistent_999',
+      })
+    ).rejects.toThrow('not found');
   });
 });
