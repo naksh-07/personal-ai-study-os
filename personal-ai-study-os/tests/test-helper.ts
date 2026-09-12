@@ -30,6 +30,13 @@ export function createTestDatabase(): TestContext {
     sqlite.exec(migration2Sql);
   }
 
+  // Load migration SQL from apps/worker/migrations/0003_epic_shit_blueprint.sql
+  const migration3Path = path.resolve(__dirname, '../apps/worker/migrations/0003_epic_shit_blueprint.sql');
+  if (fs.existsSync(migration3Path)) {
+    const migration3Sql = fs.readFileSync(migration3Path, 'utf8');
+    sqlite.exec(migration3Sql);
+  }
+
   const d1 = createD1FromBetterSqlite3(sqlite);
   const db = createKyselyD1(d1);
 

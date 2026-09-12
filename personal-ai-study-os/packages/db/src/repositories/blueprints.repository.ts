@@ -379,4 +379,229 @@ export class BlueprintsRepository {
       .onConflict((oc) => oc.column('id').doNothing())
       .execute();
   }
+
+  /**
+   * Seeds the authoritative "THE EPIC SHIT — OG Personal Timetable Blueprint v0.1" (bp_epic_shit_og),
+   * along with its 7 daily time maps and 6 biological/routine constraints.
+   * Idempotent (ON CONFLICT DO NOTHING).
+   */
+  static async seedEpicShitBlueprint(
+    db: Kysely<Database>,
+    userId: string,
+    activate: boolean = false
+  ): Promise<string> {
+    const bpId = 'bp_epic_shit_og';
+    const now = '2026-09-13T00:00:00.000Z';
+
+    if (activate) {
+      await db
+        .updateTable('schedule_blueprints')
+        .set({ is_active: 0, updated_at: now })
+        .where('user_id', '=', userId)
+        .execute();
+    }
+
+    await db
+      .insertInto('schedule_blueprints')
+      .values({
+        id: bpId,
+        user_id: userId,
+        name: 'The Epic Shit — OG Personal Timetable Blueprint v0.1',
+        timezone: 'Asia/Kolkata',
+        is_active: activate ? 1 : 0,
+        version: 1,
+        max_daily_deep_work_minutes: 270,
+        max_daily_focus_containers: 7,
+        max_continuous_session_minutes: 90,
+        default_decompression_buffer_minutes: 15,
+        freeze_window_minutes: 120,
+        buffer_days: '[0]', // Sunday rebalancing
+        created_at: now,
+        updated_at: now,
+      })
+      .onConflict((oc) => oc.column('id').doNothing())
+      .execute();
+
+    // Seed 7 OG Timetable time maps
+    await db
+      .insertInto('schedule_time_maps')
+      .values([
+        {
+          id: 'tm_og_maths_anchor',
+          blueprint_id: bpId,
+          day_of_week: null, // Every day
+          start_time: '08:30',
+          end_time: '10:15',
+          subject_id: null,
+          activity_type: 'deep_work',
+          container_id: 'maths_anchor',
+          is_optional: 0,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: 'tm_og_reasoning_anchor',
+          blueprint_id: bpId,
+          day_of_week: null,
+          start_time: '10:30',
+          end_time: '12:00',
+          subject_id: null,
+          activity_type: 'pyq_practice',
+          container_id: 'reasoning_anchor',
+          is_optional: 0,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: 'tm_og_rotation_a',
+          blueprint_id: bpId,
+          day_of_week: null,
+          start_time: '13:30',
+          end_time: '15:00',
+          subject_id: null,
+          activity_type: 'deep_work',
+          container_id: 'academic_rotation_a',
+          is_optional: 0,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: 'tm_og_rotation_b',
+          blueprint_id: bpId,
+          day_of_week: null,
+          start_time: '15:20',
+          end_time: '16:50',
+          subject_id: null,
+          activity_type: 'deep_work',
+          container_id: 'academic_rotation_b',
+          is_optional: 0,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: 'tm_og_consolidation',
+          blueprint_id: bpId,
+          day_of_week: null,
+          start_time: '17:30',
+          end_time: '18:15',
+          subject_id: null,
+          activity_type: 'revision',
+          container_id: 'consolidation',
+          is_optional: 0,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: 'tm_og_secondary',
+          blueprint_id: bpId,
+          day_of_week: null,
+          start_time: '19:30',
+          end_time: '20:30',
+          subject_id: null,
+          activity_type: 'deep_work',
+          container_id: 'secondary_activity',
+          is_optional: 1,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: 'tm_og_night_retrieval',
+          blueprint_id: bpId,
+          day_of_week: null,
+          start_time: '21:15',
+          end_time: '22:00',
+          subject_id: null,
+          activity_type: 'revision',
+          container_id: 'night_retrieval',
+          is_optional: 0,
+          created_at: now,
+          updated_at: now,
+        },
+      ])
+      .onConflict((oc) => oc.column('id').doNothing())
+      .execute();
+
+    // Seed 6 OG Constraints
+    await db
+      .insertInto('schedule_constraints')
+      .values([
+        {
+          id: 'sc_og_sleep_curfew',
+          blueprint_id: bpId,
+          name: 'Sleep & Biological Curfew',
+          constraint_type: 'biological_invariant',
+          day_of_week: null,
+          start_time: '22:20',
+          end_time: '07:00',
+          is_hard: 1,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: 'sc_og_morning_routine',
+          blueprint_id: bpId,
+          name: 'Morning Routine & Readiness',
+          constraint_type: 'personal_routine',
+          day_of_week: null,
+          start_time: '07:00',
+          end_time: '08:30',
+          is_hard: 0,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: 'sc_og_lunch_break',
+          blueprint_id: bpId,
+          name: 'Lunch, Reset & Digestion',
+          constraint_type: 'biological_invariant',
+          day_of_week: null,
+          start_time: '12:00',
+          end_time: '13:30',
+          is_hard: 1,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: 'sc_og_physical_tea',
+          blueprint_id: bpId,
+          name: 'Physical Movement, Tea & Mental Reset',
+          constraint_type: 'personal_routine',
+          day_of_week: null,
+          start_time: '16:50',
+          end_time: '17:30',
+          is_hard: 0,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: 'sc_og_dinner_break',
+          blueprint_id: bpId,
+          name: 'Dinner & Evening Break',
+          constraint_type: 'biological_invariant',
+          day_of_week: null,
+          start_time: '20:30',
+          end_time: '21:15',
+          is_hard: 1,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: 'sc_og_shutdown_routine',
+          blueprint_id: bpId,
+          name: 'Night Shutdown Routine & Wind-Down',
+          constraint_type: 'personal_routine',
+          day_of_week: null,
+          start_time: '22:00',
+          end_time: '22:20',
+          is_hard: 0,
+          created_at: now,
+          updated_at: now,
+        },
+      ])
+      .onConflict((oc) => oc.column('id').doNothing())
+      .execute();
+
+    return bpId;
+  }
 }
+

@@ -56,7 +56,20 @@ export type StudyActivityType = z.infer<typeof StudyActivityTypeSchema>;
 export const EvidenceTierSchema = z.enum(['user_reported', 'observed', 'derived', 'inferred']);
 export type EvidenceTier = z.infer<typeof EvidenceTierSchema>;
 
-export const FocusContainerIdSchema = z.enum(['morning_focus', 'afternoon_practice', 'evening_consolidation']);
+export const FocusContainerIdSchema = z.enum([
+  // Phase 8 Baseline Containers
+  'morning_focus',
+  'afternoon_practice',
+  'evening_consolidation',
+  // Phase 9 OG Timetable Containers
+  'maths_anchor',
+  'reasoning_anchor',
+  'academic_rotation_a',
+  'academic_rotation_b',
+  'consolidation',
+  'secondary_activity',
+  'night_retrieval',
+]);
 export type FocusContainerId = z.infer<typeof FocusContainerIdSchema>;
 
 export const FocusContainerDefinitionSchema = z.object({

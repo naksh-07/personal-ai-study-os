@@ -167,3 +167,187 @@ export function getDayOfWeek(
     return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
   }
 }
+
+/**
+ * Authoritative "THE EPIC SHIT — OG Personal Timetable Blueprint v0.1" specification.
+ * Translates the dynamic container architecture into a typed Schedule Blueprint configuration.
+ *
+ * SKELETON:
+ * - 07:00 - 08:30: Morning Routine (Biological Invariant / Routine constraint)
+ * - 08:30 - 10:15: Maths Anchor (105m Deep Work, non-optional)
+ * - 10:15 - 10:30: Decompression Buffer (15m)
+ * - 10:30 - 12:00: Reasoning Anchor (90m PYQ Practice, non-optional)
+ * - 12:00 - 13:30: Lunch & Reset (Biological Invariant constraint)
+ * - 13:30 - 15:00: Academic Rotation A (90m Deep Work, non-optional, common subject pool)
+ * - 15:00 - 15:20: Mental Break (20m)
+ * - 15:20 - 16:50: Academic Rotation B (90m Deep Work, non-optional, common subject pool)
+ * - 16:50 - 17:30: Physical Movement / Tea / Reset (Personal Routine constraint)
+ * - 17:30 - 18:15: Consolidation Layer (45m Revision / Retrieval / Anki, non-optional)
+ * - 18:15 - 19:30: Downtime / Transition (Personal Routine constraint)
+ * - 19:30 - 20:30: Secondary Activity Pool (60m Deep Work, optional: coding / project / language)
+ * - 20:30 - 21:15: Dinner & Wind-Down (Biological Invariant constraint)
+ * - 21:15 - 22:00: Night Retrieval / Light Practice (45m Revision / Mixed Quiz, non-optional)
+ * - 22:00 - 22:20: Shutdown Routine (Personal Routine constraint)
+ * - 22:20 - 07:00: Sleep Curfew (Biological Invariant constraint)
+ */
+export const EPIC_SHIT_OG_BLUEPRINT: ScheduleBlueprintConfig = {
+  timezone: 'Asia/Kolkata',
+  maxDailyFocusContainers: 7,
+  maxDailyDeepWorkMinutes: 270, // Preserves authoritative Phase 8 cognitive deep-work ceiling (4.5h)
+  maxContinuousSessionMinutes: 90, // Preserves authoritative cognitive limit for continuous focus (90m)
+  defaultDecompressionBufferMinutes: 15,
+  freezeWindowMinutes: 120,
+  bufferDays: [0], // Sunday rebalancing & recovery
+  containers: [
+    {
+      containerId: 'maths_anchor',
+      name: 'Maths Daily Cognitive Anchor',
+      defaultStartTime: '08:30',
+      defaultEndTime: '10:15',
+      maxDurationMinutes: 105,
+      permittedActivityTypes: ['deep_work', 'pyq_practice'],
+      isOptional: false,
+    },
+    {
+      containerId: 'reasoning_anchor',
+      name: 'Reasoning Daily Cognitive Anchor',
+      defaultStartTime: '10:30',
+      defaultEndTime: '12:00',
+      maxDurationMinutes: 90,
+      permittedActivityTypes: ['pyq_practice', 'deep_work'],
+      isOptional: false,
+    },
+    {
+      containerId: 'academic_rotation_a',
+      name: 'Academic Rotation Block A',
+      defaultStartTime: '13:30',
+      defaultEndTime: '15:00',
+      maxDurationMinutes: 90,
+      permittedActivityTypes: ['deep_work', 'lecture'],
+      isOptional: false,
+    },
+    {
+      containerId: 'academic_rotation_b',
+      name: 'Academic Rotation Block B',
+      defaultStartTime: '15:20',
+      defaultEndTime: '16:50',
+      maxDurationMinutes: 90,
+      permittedActivityTypes: ['deep_work', 'pyq_practice'],
+      isOptional: false,
+    },
+    {
+      containerId: 'consolidation',
+      name: 'Daily Consolidation & Retrieval Layer',
+      defaultStartTime: '17:30',
+      defaultEndTime: '18:15',
+      maxDurationMinutes: 45,
+      permittedActivityTypes: ['revision'],
+      isOptional: false,
+    },
+    {
+      containerId: 'secondary_activity',
+      name: 'Secondary Activity Pool (Coding / Project / Language)',
+      defaultStartTime: '19:30',
+      defaultEndTime: '20:30',
+      maxDurationMinutes: 60,
+      permittedActivityTypes: ['deep_work'],
+      isOptional: true,
+    },
+    {
+      containerId: 'night_retrieval',
+      name: 'Night Retrieval & Formula Practice Anchor',
+      defaultStartTime: '21:15',
+      defaultEndTime: '22:00',
+      maxDurationMinutes: 45,
+      permittedActivityTypes: ['revision', 'pyq_practice'],
+      isOptional: false,
+    },
+  ],
+};
+
+/**
+ * Authoritative constraint definitions matching the OG timetable blueprint.
+ */
+export const EPIC_SHIT_OG_CONSTRAINTS = [
+  {
+    id: 'sc_og_sleep_curfew',
+    name: 'Sleep & Biological Curfew',
+    constraintType: 'biological_invariant' as const,
+    startTime: '22:20',
+    endTime: '07:00',
+    isHard: true,
+  },
+  {
+    id: 'sc_og_morning_routine',
+    name: 'Morning Routine & Readiness',
+    constraintType: 'personal_routine' as const,
+    startTime: '07:00',
+    endTime: '08:30',
+    isHard: false,
+  },
+  {
+    id: 'sc_og_lunch_break',
+    name: 'Lunch, Reset & Digestion',
+    constraintType: 'biological_invariant' as const,
+    startTime: '12:00',
+    endTime: '13:30',
+    isHard: true,
+  },
+  {
+    id: 'sc_og_physical_tea',
+    name: 'Physical Movement, Tea & Mental Reset',
+    constraintType: 'personal_routine' as const,
+    startTime: '16:50',
+    endTime: '17:30',
+    isHard: false,
+  },
+  {
+    id: 'sc_og_dinner_break',
+    name: 'Dinner & Evening Break',
+    constraintType: 'biological_invariant' as const,
+    startTime: '20:30',
+    endTime: '21:15',
+    isHard: true,
+  },
+  {
+    id: 'sc_og_shutdown_routine',
+    name: 'Night Shutdown Routine & Wind-Down',
+    constraintType: 'personal_routine' as const,
+    startTime: '22:00',
+    endTime: '22:20',
+    isHard: false,
+  },
+];
+
+/**
+ * Classifies if a container ID represents a non-negotiable daily cognitive anchor.
+ */
+export function isAnchorContainer(containerId?: string | null): boolean {
+  if (!containerId) return false;
+  return ['maths_anchor', 'reasoning_anchor', 'night_retrieval'].includes(containerId);
+}
+
+/**
+ * Classifies if a container ID represents a dynamic academic rotation slot.
+ */
+export function isRotationContainer(containerId?: string | null): boolean {
+  if (!containerId) return false;
+  return ['academic_rotation_a', 'academic_rotation_b'].includes(containerId);
+}
+
+/**
+ * Classifies if a container ID represents the replaceable secondary activity pool.
+ */
+export function isSecondaryActivity(containerId?: string | null): boolean {
+  if (!containerId) return false;
+  return containerId === 'secondary_activity';
+}
+
+/**
+ * Classifies if a container ID represents the dedicated consolidation layer.
+ */
+export function isConsolidationContainer(containerId?: string | null): boolean {
+  if (!containerId) return false;
+  return containerId === 'consolidation';
+}
+
