@@ -39,7 +39,7 @@ app.get('/v1/status', async (c) => {
 
   return c.json({
     system: 'Personal AI Study OS',
-    version: '1.2.3',
+    version: '1.4.0',
     status: 'online',
     operatorConfigured: !!user,
     eventsRecorded: Number(eventCount?.count ?? 0),

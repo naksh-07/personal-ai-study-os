@@ -121,6 +121,41 @@ describe('Phase 4C: Gemini Spark OAuth Compatibility & Security Test Suite', () 
     expect(mcpProbe.status).toBe(401);
     expect(mcpProbe.headers.get('WWW-Authenticate')).toContain('resource_metadata=');
     expect(mcpProbe.headers.get('Link')).toContain('rel="oauth-protected-resource"');
+    expect(mcpProbe.headers.get('WWW-Authenticate')).not.toContain('personal-ai-study-os-staging');
+  });
+
+  it('2b. ensures production environment never emits staging hostname on 401 unauthenticated probe', async () => {
+    // 1. Production request with explicit production origin
+    const prodReq = new Request('https://personal-ai-study-os-production.riyasaksena502.workers.dev/mcp', {
+      method: 'GET',
+    });
+    const prodRes = await app.fetch(prodReq, makeEnv({ ENVIRONMENT: 'production' }));
+    expect(prodRes.status).toBe(401);
+    const authHeader = prodRes.headers.get('WWW-Authenticate') || '';
+    const linkHeader = prodRes.headers.get('Link') || '';
+    expect(authHeader).toContain('https://personal-ai-study-os-production.riyasaksena502.workers.dev/.well-known/oauth-protected-resource');
+    expect(linkHeader).toContain('https://personal-ai-study-os-production.riyasaksena502.workers.dev/.well-known/oauth-protected-resource');
+    expect(authHeader).not.toContain('personal-ai-study-os-staging');
+    expect(linkHeader).not.toContain('personal-ai-study-os-staging');
+
+    // 2. Production request with relative URL / fallback (c.req.url cannot provide full origin or fails parse)
+    const fallbackRes = await app.request('/mcp', { method: 'GET' }, makeEnv({ ENVIRONMENT: 'production' }));
+    expect(fallbackRes.status).toBe(401);
+    const fallbackAuth = fallbackRes.headers.get('WWW-Authenticate') || '';
+    const fallbackLink = fallbackRes.headers.get('Link') || '';
+    expect(fallbackAuth).not.toContain('personal-ai-study-os-staging');
+    expect(fallbackLink).not.toContain('personal-ai-study-os-staging');
+    expect(fallbackAuth).toContain('resource_metadata=');
+  });
+
+  it('2c. ensures staging environment correctly uses staging hostname when in staging', async () => {
+    const stagingReq = new Request('https://personal-ai-study-os-staging.riyasaksena502.workers.dev/mcp', {
+      method: 'GET',
+    });
+    const stagingRes = await app.fetch(stagingReq, makeEnv({ ENVIRONMENT: 'staging' }));
+    expect(stagingRes.status).toBe(401);
+    const authHeader = stagingRes.headers.get('WWW-Authenticate') || '';
+    expect(authHeader).toContain('https://personal-ai-study-os-staging.riyasaksena502.workers.dev/.well-known/oauth-protected-resource');
   });
 
   // ==========================================================================

@@ -82,7 +82,19 @@ function getOrigin(c: Context<AppContext>): string {
     const url = new URL(c.req.url);
     return url.origin;
   } catch {
-    return 'https://personal-ai-study-os-staging.riyasaksena502.workers.dev';
+    const host = c.req.header('x-forwarded-host') || c.req.header('host');
+    const proto = c.req.header('x-forwarded-proto') || 'https';
+    if (host) {
+      return `${proto}://${host}`;
+    }
+    const env = c.env?.ENVIRONMENT;
+    if (env === 'production') {
+      return 'https://personal-ai-study-os-production.riyasaksena502.workers.dev';
+    }
+    if (env === 'staging') {
+      return 'https://personal-ai-study-os-staging.riyasaksena502.workers.dev';
+    }
+    return 'http://localhost';
   }
 }
 

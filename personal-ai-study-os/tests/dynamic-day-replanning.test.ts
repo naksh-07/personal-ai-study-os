@@ -515,6 +515,7 @@ describe('Phase 10: Dynamic Day Replanning & Variable Wake/Sleep Policy v1.0 Tes
         date: '2026-09-13',
         timezone: 'Asia/Kolkata',
         declaredWake: '07:00',
+        currentTimestamp: '2026-09-13T02:00:00.000Z',
       });
 
       expect(res.success).toBe(true);

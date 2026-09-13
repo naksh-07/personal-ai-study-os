@@ -122,7 +122,23 @@ describe('Slice 4: Remote MCP Server (Streamable HTTP 2026-07-28 & Semantic Tool
       expect(json.id).toBe('req_init_1');
       expect(json.result.protocolVersion).toBe('2026-07-28');
       expect(json.result.serverInfo.name).toBe('personal-ai-study-os');
+      expect(json.result.serverInfo.version).toBe('1.4.0');
       expect(json.result.capabilities.tools).toBeDefined();
+    });
+
+    it('returns server info and version 1.4.0 on authenticated GET /mcp probe', async () => {
+      const res = await app.request('/mcp', {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${readToken}`,
+        },
+      }, makeEnv());
+
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.name).toBe('personal-ai-study-os');
+      expect(json.version).toBe('1.4.0');
+      expect(json.protocolVersion).toBe('2026-07-28');
     });
 
     it('handles ping and notifications/initialized', async () => {

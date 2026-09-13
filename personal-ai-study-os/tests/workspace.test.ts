@@ -60,7 +60,7 @@ describe('Workspace & Worker Foundation', () => {
 
     const json = await res.json() as any;
     expect(json.system).toBe('Personal AI Study OS');
-    expect(json.version).toBe('1.2.3');
+    expect(json.version).toBe('1.4.0');
     expect(json.operatorConfigured).toBe(false);
     expect(json.eventsRecorded).toBe(0);
   });
