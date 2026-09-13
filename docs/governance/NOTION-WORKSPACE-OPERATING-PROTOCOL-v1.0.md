@@ -6,6 +6,9 @@
 **Effective Date:** 2026-09-13  
 **Target Audience:** All AI Agents (ChatGPT, Gemini, Gemini Spark, Antigravity, Claude, future agents), automations, MCP clients, and human collaborators.
 
+> **Global Notion Governance Rule:**  
+> Before any AI, agent, automation, MCP tool, or future client performs meaningful work in the Notion workspace, it must first read and follow the Universal Notion Workspace Operating Protocol. This protocol is the workspace-wide governance layer and applies regardless of which project, database, page, or workflow is being accessed.
+
 > **Core Philosophy:** Notion is a living human workspace, not an AI playground. Every AI interaction must follow:  
 > **READ → UNDERSTAND → VERIFY → MINIMAL ACTION → PRESERVE.**
 
@@ -18,6 +21,7 @@ Every AI, automation, or script interacting with this Notion workspace must oper
 1. **Conservative Default:** Modify only what is strictly necessary to satisfy the explicit user instruction or execute a documented workflow.
 2. **First-Class Discipline:** An AI noticing something that "could be improved" has **no authorization** to change it. Unprompted cleanup, unsolicited reorganization, and speculative refactoring are strictly prohibited.
 3. **Execution Creed:** *Useful work, minimum disturbance.*
+4. **Protocol Access Gate:** If an AI/client cannot access or read the Universal Notion Workspace Operating Protocol, it must **NOT** perform structural or write operations in Notion, unless the operation is already governed by a verified workflow contract.
 
 ---
 
@@ -52,10 +56,12 @@ All properties, sections, and blocks within Notion adhere to a formal tripartite
 | `[🤖]` | **Machine-Owned** | Automated Engines | **Authoritative Machine State.** Updated strictly by designated automations/clients in accordance with approved contracts. AI must verify schema and entity ID before writing. |
 | `[🔄]` | **Shared** | Collaborative | **Defined Contract.** Initialized by system, refined by human, or reconciled bidirectionally. Modifiable strictly within documented workflow rules. Shared never means unrestricted. |
 
-If a property or block lacks an explicit marker:
-- Treat body prose, reflections, notes, and journals as `[✍️] Human-Owned`.
-- Treat system identifiers (e.g., `OS_Entity_ID`), computed scores, and foreign IDs as `[🤖] Machine-Owned`.
-- Stop and inspect schema documentation before assuming permission to write.
+### Unknown or Unmarked Ownership Rules
+If a property, block, or section lacks an explicit ownership marker, or if ownership is unclear:
+- **Human-authored content defaults to `[✍️]` protection.**
+- **Machine ownership must be explicitly verified from the schema or workflow documentation.**
+- **Never infer write permission from a property's name, type, location, or apparent purpose.**
+- **If ownership is unclear: STOP and verify. Do not guess.**
 
 ---
 
@@ -63,7 +69,7 @@ If a property or block lacks an explicit marker:
 
 Before performing any read or query operations:
 
-1. **Protocol Awareness:** Ground every operation in this Universal Operating Protocol.
+1. **Protocol Awareness & Access Gate:** Ground every operation in this Universal Operating Protocol. If an AI/client cannot access or read this protocol, it must NOT perform structural or write operations in Notion, unless the operation is already governed by a verified workflow contract.
 2. **Target Identification:** Identify the specific target page, database, or block needed for the task.
 3. **Purpose Understanding:** Understand why the page or database exists before interpreting its data.
 4. **Structural Inspection:** Inspect parent-child hierarchy and existing views before searching.
@@ -162,11 +168,14 @@ Human-authored text possesses absolute priority and immunity from unprompted mod
 - Inspect all upstream and downstream dependencies before executing any move or rename.
 
 ### Delete Rules
-- Deletion is destructive and often irreversible.
-- **Strict Prohibition:** AI must never delete pages, databases, database properties, relations, views, historical logs, or human-authored content.
-- If an entity appears obsolete, propose archiving it via status change (e.g., `Status = Archived`) rather than deletion.
-- If deletion is requested, confirm exact entity ID and verify that no relational dependencies will be orphaned.
-- **When uncertain: STOP. Do not guess.**
+- **Prohibited by Default:** Deletion is prohibited by default.
+- **No Unilateral Deletion:** Do not allow an AI to delete anything merely because it believes the item is obsolete, duplicated, unnecessary, or improvable. Propose archiving via status change (e.g., `Status = Archived`) rather than deletion.
+- **Explicit User Deletion Workflow:** If the user explicitly requests deletion, execute this mandatory sequence:
+  1. **Identify the exact target** (verify exact title, page ID, block ID, database, or property).
+  2. **Inspect dependencies/impact** (check incoming relations, child blocks, rollups, and integration hooks).
+  3. **Obtain explicit confirmation immediately before deletion** (present the exact target, ID, and dependency impact to the user for explicit confirmation).
+  4. **Delete only the exact requested target** (zero collateral deletion).
+  5. **Verify the result** (re-fetch or inspect to confirm only the specified target was removed and surrounding structures remain intact).
 
 ---
 
@@ -253,7 +262,7 @@ After performing any write, update, or create operation in Notion:
 ### Handling Ambiguity
 If an AI client or automation encounters:
 - An unknown property or undefined tag
-- Ambiguous ownership between human and machine
+- Ambiguous or unclear ownership between human and machine (human-authored content defaults to `[✍️]` protection; machine ownership must be explicitly verified from schema/workflow docs; never infer write permission from name, type, location, or apparent purpose; STOP and verify)
 - An unclear destination for new information
 - Conflicting records or potential duplicates
 - Uncertainty regarding whether an action is safe

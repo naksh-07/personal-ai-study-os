@@ -150,14 +150,14 @@ The 15 substantive protocol sections have been fully codified:
 | **3** | AI asked to reorganize a page. | Permitted only by explicit human instruction; preserves 100% of existing human prose without truncation or loss; verifies layout. | **PASS** |
 | **4** | AI sees a "better" database structure. | Section 1.2 & 6 forbid unprompted restructuring; AI takes zero action. | **PASS** |
 | **5** | AI sees human reflection. | Classified as `[✍️] Human-Owned`; protected from overwrite, summarization, or "beautification". | **PASS** |
-| **6** | AI sees unknown property. | Section 14 mandates STOP; AI does not guess, modify, or delete the property. | **PASS** |
+| **6** | AI sees unknown property. | Section 3 & 14 mandate STOP; human-authored content defaults to `[✍️]`; machine ownership explicitly verified from schema/docs; never infer write permission from name/type/location; AI does not guess or write. | **PASS** |
 | **7** | AI finds duplicate page. | Reuses/updates canonical entry; does not create a third duplicate; flags duplicate for human resolution. | **PASS** |
-| **8** | AI asked to delete something. | Deletion forbidden; proposes status archiving (`Status = Archived`) or stops and verifies explicit user confirmation. | **PASS** |
+| **8** | AI asked to delete something. | Deletion prohibited by default; zero unilateral deletion; if explicitly requested by user, executes 5-step gate (identify target, inspect dependencies/impact, obtain explicit confirmation immediately before deletion, delete only exact target, verify result). | **PASS** |
 | **9** | AI asked to rename a database. | Section 9 forbids renaming without dependency audit and explicit confirmation; protects relations and integrations. | **PASS** |
 | **10** | AI receives ambiguous destination. | Routes cleanly to `Universal Inbox` or stops and asks user; never creates an ad-hoc database. | **PASS** |
 | **11** | AI receives machine-generated data. | Rejects raw telemetry dumps; only curated summaries are projected to `[🤖]` fields with `OS_Entity_ID`. | **PASS** |
 | **12** | AI receives request belonging to Study OS. | Defers to stricter Study OS contracts (D1/PSS/Google APIs) without weakening Universal anti-slop rules. | **PASS** |
-| **13** | AI from different client (Claude/ChatGPT/Spark). | Protocol sits at workspace root; platform-neutral rules bind all clients equally without exemptions. | **PASS** |
+| **13** | AI from different client (Claude/ChatGPT/Spark). | Global Notion Governance Rule sits at workspace root; Protocol Access Gate mandates reading protocol before any write/structural action unless governed by verified workflow contract. Binds all clients equally. | **PASS** |
 
 ---
 
@@ -215,3 +215,38 @@ nothing to commit, working tree clean
 ```text
 GREEN — GOVERNANCE PROTOCOL ACTIVE
 ```
+
+---
+
+## 19. Protocol v1.0 Final Micro-Fixes (2026-09-13)
+
+A surgical micro-fix pass was applied across the repository source of truth, repository documentation, and published Notion page:
+
+1. **Protocol Access Gate Codified (Section 1.4 & Section 4.1):**
+   - If an AI, agent, automation, script, or client cannot access or read the Universal Notion Workspace Operating Protocol, it must **NOT** perform structural or write operations in Notion, unless the operation is already governed by a verified workflow contract.
+
+2. **Unknown Ownership Rule Refined (Section 3 & Section 14/15):**
+   - Human-authored content defaults to `[✍️]` protection.
+   - Machine ownership must be explicitly verified from the schema or workflow documentation.
+   - Never infer write permission from a property's name, type, location, or apparent purpose.
+   - If ownership is unclear: **STOP and verify. Do not guess.**
+
+3. **Deletion Rule Clarified (Section 9):**
+   - Deletion is prohibited by default.
+   - Zero unilateral deletion based on perceived obsolescence, duplication, unnecessariness, or improvement.
+   - If the user explicitly requests deletion, the mandatory 5-step gate must be executed:
+     1. Identify the exact target (title, ID).
+     2. Inspect dependencies/impact.
+     3. Obtain explicit confirmation immediately before deletion.
+     4. Delete only the exact requested target.
+     5. Verify the result.
+
+4. **Global Notion Governance Rule Codified (Preamble, README.md, GEMINI.md):**
+   - Persistent project-wide rule: *"Before any AI, agent, automation, MCP tool, or future client performs meaningful work in the Notion workspace, it must first read and follow the Universal Notion Workspace Operating Protocol. This protocol is the workspace-wide governance layer and applies regardless of which project, database, page, or workflow is being accessed."*
+   - Documented prominently in `Personal/README.md` (Section 1.1 and Section 4) and `Notion/GEMINI.md`.
+
+5. **Parity & Invariant Verification:**
+   - Repository source of truth (`docs/governance/NOTION-WORKSPACE-OPERATING-PROTOCOL-v1.0.md`) and published Notion page (`3daa86b6-95e7-8137-b57a-dc84e6d8049b`) verified 100% aligned.
+   - Zero duplicate Notion pages created (confirmed via search: exactly 1 match).
+   - Zero modifications to Spark Skills, D1, PSS, or scheduling architecture.
+

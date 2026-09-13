@@ -22,6 +22,14 @@ In accordance with system governance, all implementation planning, code authorin
 5. **[`docs/architecture/engineering_blueprint.md`](./docs/architecture/engineering_blueprint.md)**  
    *Initial architectural blueprint and engineering design.*
 
+### 1.1 Global Notion Governance Rule
+
+> **Mandatory Workspace-Wide Directive:**  
+> "Before any AI, agent, automation, MCP tool, or future client performs meaningful work in the Notion workspace, it must first read and follow the Universal Notion Workspace Operating Protocol. This protocol is the workspace-wide governance layer and applies regardless of which project, database, page, or workflow is being accessed."
+>
+> **Repository Source of Truth:** [`docs/governance/NOTION-WORKSPACE-OPERATING-PROTOCOL-v1.0.md`](./docs/governance/NOTION-WORKSPACE-OPERATING-PROTOCOL-v1.0.md)  
+> **Published Notion Page:** `📜 Notion Workspace Operating Protocol` (`3daa86b6-95e7-8137-b57a-dc84e6d8049b`)
+
 ---
 
 ## 2. Project Documentation Directory
@@ -81,7 +89,7 @@ docs/
 - **Provider Authority:**
   - **Google Tasks:** Owns task existence and completion status (**WHAT**).
   - **Google Calendar:** Owns schedule blocks and calendar slots (**WHEN**).
-  - **Notion:** Human-facing long-term study memory and rich session notes.
+  - **Notion:** Human-facing long-term study memory and rich session notes. Governed workspace-wide by [`docs/governance/NOTION-WORKSPACE-OPERATING-PROTOCOL-v1.0.md`](./docs/governance/NOTION-WORKSPACE-OPERATING-PROTOCOL-v1.0.md).
   - **Cloudflare D1:** Authoritative machine truth, event log, and idempotency ledger.
   - **Antigravity:** Technical execution agent authorized for backend engineering, deployment, and operational tasks.
   - **Gemini Spark & ChatGPT:** Intermittent LLM intelligence for planning and scheduling (human-configured custom instructions; no continuous sync, no chat history stored).
