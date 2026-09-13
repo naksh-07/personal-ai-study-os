@@ -41,6 +41,8 @@ docs/
 │   ├── Technical_Contracts_Data_Specification_v1.1.md          # Active authoritative technical contracts
 │   └── archive/
 │       └── Technical_Contracts_Data_Specification_v1.0.md      # Historical superseded contracts
+├── governance/
+│   └── NOTION-WORKSPACE-OPERATING-PROTOCOL-v1.0.md             # Universal Notion workspace governance protocol
 └── specifications/
     ├── README.md                              # Specifications index & reconciliation history
     ├── Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.3.md  # Active authoritative spec
@@ -58,6 +60,7 @@ docs/
 
 | Document | Version | Status | Role |
 | :--- | :--- | :--- | :--- |
+| [`NOTION-WORKSPACE-OPERATING-PROTOCOL-v1.0.md`](./docs/governance/NOTION-WORKSPACE-OPERATING-PROTOCOL-v1.0.md) | **v1.0** | **ACTIVE AUTHORITATIVE** | Universal Notion workspace operating protocol governing human memory, anti-slop, and multi-agent coordination across all AI clients. |
 | [`FINAL-SCHEDULING-ACTIVATION.md`](./docs/architecture/FINAL-SCHEDULING-ACTIVATION.md) | **v1.2.3** | **ACTIVE AUTHORITATIVE** | Final scheduling activation: Spark morning scheduler, Antigravity nightly normalizer, dynamic replanning triggers, exact prompts, verified paths, and ownership boundaries. |
 | [`Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.3.md`](./docs/specifications/Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.3.md) | **v1.2.3** | **ACTIVE AUTHORITATIVE** | Complete production specification governing schema (24 tables), transactional outbox, 120s processing lease, single-increment attempt_count semantics, attempt-preserving CAS recovery, crash loop termination, deterministic Google Tasks lost-ack expanding window, provider idempotency, Streamable HTTP MCP, and CI/CD promotion. |
 | [`Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.2.md`](./docs/specifications/archive/Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.2.md) | v1.2.2 | Superseded | Historical pre-build gate correction document. Preserved for auditability. |
