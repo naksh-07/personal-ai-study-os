@@ -83,6 +83,51 @@ export const FocusContainerDefinitionSchema = z.object({
 });
 export type FocusContainerDefinition = z.infer<typeof FocusContainerDefinitionSchema>;
 
+export const DayClassificationSchema = z.enum([
+  'NORMAL',
+  'SHORT_DAY',
+  'LATE_START',
+  'EARLY_START',
+  'EXTENDED_DAY',
+]);
+export type DayClassification = z.infer<typeof DayClassificationSchema>;
+
+/**
+ * Authoritative Minimum Viable Durations per Dynamic Day Replanning Policy v1.0 Section 10.
+ * Containers must never be compressed below these floors.
+ */
+export const MIN_VIABLE_CONTAINER_DURATIONS: Record<FocusContainerId, number> = {
+  morning_focus: 60,
+  afternoon_practice: 60,
+  evening_consolidation: 30,
+  maths_anchor: 60,
+  reasoning_anchor: 60,
+  academic_rotation_a: 45,
+  academic_rotation_b: 45,
+  consolidation: 30,
+  secondary_activity: 45,
+  night_retrieval: 20,
+};
+
+export const DayStateProfileSchema = z.object({
+  date: z.string(),
+  timezone: z.string(),
+  currentTime: z.string(),
+  actualWake: z.string(),
+  windDownStart: z.string(),
+  targetSleep: z.string(),
+  availablePhysicalMinutes: z.number().int().min(0),
+  completedDeepWorkMinutes: z.number().int().min(0),
+  remainingDeepWorkCapacityMinutes: z.number().int().min(0),
+  classifications: z.array(DayClassificationSchema),
+  elapsedContainers: z.array(z.string()),
+  activeContainer: z.string().nullable(),
+  viableContainers: z.array(z.string()),
+  lockedCalendarBlocks: z.array(z.string()),
+});
+export type DayStateProfile = z.infer<typeof DayStateProfileSchema>;
+
+
 export const ScheduleConstraintTypeSchema = z.enum([
   'biological_invariant',
   'fixed_commitment',
@@ -755,6 +800,7 @@ export interface ScheduleContextState {
   activeBlueprint?: ScheduleBlueprint;
   timeMaps?: ScheduleTimeMap[];
   constraints?: ScheduleConstraint[];
+  dayState?: DayStateProfile;
 }
 
 export interface MemorySearchItem {
@@ -937,6 +983,7 @@ export const ScheduleDecisionTypeSchema = z.enum([
   'schedule_allocated',
   'schedule_missed',
   'decision_only',
+  'day_boundary_shifted',
 ]);
 export type ScheduleDecisionType = z.infer<typeof ScheduleDecisionTypeSchema>;
 

@@ -336,6 +336,39 @@ export class ProjectionEngine {
         break;
       }
 
+      case 'day_boundary_shifted': {
+        const existingDaily = await ProjectionsRepository.getDailyStateByDate(db, eventDate);
+        let existingPayload: Record<string, unknown> = {};
+        try {
+          if (existingDaily?.statePayload) {
+            existingPayload = JSON.parse(existingDaily.statePayload);
+          }
+        } catch {
+          // ignore malformed JSON
+        }
+        const payload = (event.payload as Record<string, unknown>) ?? {};
+        const mergedPayload = JSON.stringify({
+          ...existingPayload,
+          dayBoundaryShift: payload,
+        });
+        const updatedDaily: DailyState = {
+          id: existingDaily?.id ?? generateId('daily'),
+          date: eventDate,
+          studyMinutes: existingDaily?.studyMinutes ?? 0,
+          completedChapters: existingDaily?.completedChapters ?? 0,
+          questionsAttempted: existingDaily?.questionsAttempted ?? 0,
+          questionsCorrect: existingDaily?.questionsCorrect ?? 0,
+          accuracy: existingDaily?.accuracy ?? 0.0,
+          missedSessions: existingDaily?.missedSessions ?? 0,
+          completedTasks: existingDaily?.completedTasks ?? 0,
+          pendingTasks: existingDaily?.pendingTasks ?? 0,
+          statePayload: mergedPayload,
+          updatedAt: event.recordedAt,
+        };
+        queries.push(ProjectionsRepository.createUpsertDailyStateQuery(db, updatedDaily));
+        break;
+      }
+
       case 'schedule_missed': {
         const existingDaily = await ProjectionsRepository.getDailyStateByDate(db, eventDate);
         const updatedDaily: DailyState = {
@@ -631,6 +664,24 @@ export class ProjectionEngine {
           }
 
           daily.completedChapters += 1;
+          daily.updatedAt = event.recordedAt;
+          break;
+        }
+
+        case 'day_boundary_shifted': {
+          let existingPayload: Record<string, unknown> = {};
+          try {
+            if (daily.statePayload) {
+              existingPayload = JSON.parse(daily.statePayload);
+            }
+          } catch {
+            // ignore malformed JSON
+          }
+          const payload = (event.payload as Record<string, unknown>) ?? {};
+          daily.statePayload = JSON.stringify({
+            ...existingPayload,
+            dayBoundaryShift: payload,
+          });
           daily.updatedAt = event.recordedAt;
           break;
         }

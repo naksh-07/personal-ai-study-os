@@ -9,6 +9,7 @@ import {
   ReliabilityRepository,
   BlueprintsRepository,
   ActivityFilterParams,
+  executeD1Batch,
 } from '@personal-os/db';
 import {
   CanonicalEvent,
@@ -60,11 +61,23 @@ import {
   ScheduleConstraint,
   RuntimePolicyContext,
   ScheduleBlueprintConfig,
+  DayStateProfile,
+  DayClassification,
+  DailyState,
 } from '@personal-os/domain';
 import { CanonicalEventEngine, CreateCanonicalEventInput } from './event-engine';
 import { AtomicWriter } from './atomic-writer';
 import { ProjectionEngine } from './projection-engine';
 import { DEFAULT_SCHEDULE_BLUEPRINT, getUtcDayRange, getDayOfWeek } from './blueprint';
+import {
+  DayStateResolver,
+  DynamicReplanningEngine,
+  ResolveDayStateInput,
+  ExecuteReplanInput,
+  DynamicReplanProposal,
+  ScheduledContainerBlock,
+  EvictedContainerRecord,
+} from './dynamic-replanning';
 
 export interface IdempotencyContext {
   key?: string;
@@ -725,7 +738,84 @@ export class PersonalStateService {
       activeBlueprint: activeBlueprint ?? undefined,
       timeMaps,
       constraints,
+      dayState: await this.resolveDayState({
+        date,
+        timezone,
+        currentTimestamp: refTime,
+      }),
     };
+  }
+
+  /**
+   * Authoritative dynamic Day-State resolution respecting the epistemic hierarchy:
+   * 1. Explicit User-Reported Fact
+   * 2. Actually Available Telemetry (canonical events)
+   * 3. Blueprint Fallback (07:00 nominal routine start)
+   * PROHIBITION: Never infer wake from first calendar event.
+   */
+  async resolveDayState(params?: {
+    date?: string;
+    timezone?: string;
+    currentTimestamp?: string;
+    declaredWake?: string;
+    declaredSleep?: string;
+  }): Promise<DayStateProfile> {
+    const user = await this.db.selectFrom('users').select(['id', 'timezone']).executeTakeFirst();
+    const activeBlueprint = await BlueprintsRepository.getActiveBlueprint(this.db, user?.id);
+    const timezone = params?.timezone ?? activeBlueprint?.timezone ?? user?.timezone ?? 'Asia/Kolkata';
+    const refTime = params?.currentTimestamp ?? new Date().toISOString();
+    const date = params?.date ?? ProjectionEngine.extractDate(refTime, timezone);
+
+    const { startUtc, endUtc } = getUtcDayRange(date, timezone);
+
+    // 1. Fetch user canonical activity for today
+    const recentActivity = await CanonicalEventsRepository.getRecentActivity(this.db, {
+      startDate: startUtc,
+      endDate: endUtc,
+    });
+    const userEventsToday = recentActivity.map((e: CanonicalEvent) => ({
+      eventId: e.eventId,
+      eventType: e.eventType,
+      occurredAt: e.occurredAt,
+      payload: e.payload,
+    }));
+
+    // 2. Fetch existing calendar blocks
+    const calendarLinks = await EntitiesRepository.getCalendarLinks(this.db, startUtc, endUtc);
+    const existingCalendarBlocks = calendarLinks.map(l => ({
+      id: l.id,
+      calendarEventId: l.eventId,
+      containerId: l.entityId,
+      title: l.titleSnapshot ?? '',
+      startsAt: l.startsAt,
+      endsAt: l.endsAt,
+      isLocked: false,
+      statusSnapshot: l.statusSnapshot ?? undefined,
+    }));
+
+    // 3. Fetch completed study sessions today
+    const sessions = await this.db
+      .selectFrom('study_sessions')
+      .where('started_at', '>=', startUtc)
+      .where('started_at', '<=', endUtc)
+      .selectAll()
+      .execute();
+    const completedStudySessions = sessions.map(s => ({
+      durationMinutes: Math.floor(s.duration_seconds / 60),
+      startedAt: s.started_at,
+      endedAt: s.ended_at ?? s.started_at,
+    }));
+
+    return DayStateResolver.resolveDayState({
+      date,
+      timezone,
+      currentTime: refTime,
+      declaredWake: params?.declaredWake,
+      declaredSleep: params?.declaredSleep,
+      userEventsToday,
+      existingCalendarBlocks,
+      completedStudySessions,
+    });
   }
 
   /**
@@ -1179,6 +1269,7 @@ export class PersonalStateService {
       // Ingest canonical event atomically with projection updates
       const event = CanonicalEventEngine.createEvent({
         eventType: 'study_session_recorded',
+        occurredAt: input.endedAt ?? input.startedAt,
         actor: { type: 'user', id: 'usr_operator' },
         source: { system: 'chatgpt', interface: 'rest' },
         payload: {
@@ -1203,6 +1294,7 @@ export class PersonalStateService {
         const accuracy = deriveAccuracy(input.questionsCorrect, input.questionsAttempted);
         const questionsEvent = CanonicalEventEngine.createEvent({
           eventType: 'questions_attempted',
+          occurredAt: input.endedAt ?? input.startedAt,
           actor: { type: 'user', id: 'usr_operator' },
           source: { system: 'chatgpt', interface: 'rest' },
           payload: {
@@ -1746,6 +1838,24 @@ export class PersonalStateService {
           correlationId: input.correlationId,
           causationId: input.causationId,
         });
+      } else if (input.decisionType === 'day_boundary_shifted') {
+        event = CanonicalEventEngine.createEvent({
+          eventType: 'day_boundary_shifted',
+          actor: { type: 'agent', id: 'agt_spark' },
+          source: { system: 'spark', interface: 'mcp' },
+          payload: {
+            previousWakeTime: input.previousStart,
+            newWakeTime: input.startTime,
+            previousSleepTime: input.previousEnd,
+            newSleepTime: input.endTime,
+            shiftReason: input.rationale ?? input.decision,
+            dayClassification: 'NORMAL',
+            availableStudyMinutes: 0,
+            consecutiveLateCount: 0,
+          },
+          correlationId: input.correlationId,
+          causationId: input.causationId,
+        });
       } else {
         event = CanonicalEventEngine.createEvent({
           eventType: 'decision_recorded',
@@ -1965,6 +2075,235 @@ export class PersonalStateService {
           targetFactId: input.factId,
           category: input.category,
         },
+      };
+    });
+  }
+
+  /**
+   * 22. replan_day:
+   * Dynamic Day Replanning:
+   * Re-synthesizes the daily study schedule when wake/sleep shifts or time is lost.
+   * Defends core morning priorities (P2 Maths, P3 Reasoning, P4 Consolidation),
+   * evicts lower-priority containers (P8->P7->P5->P6), preserves minimum viable durations,
+   * enforces 270m cognitive ceiling and 120m rolling freeze window,
+   * snaps to 15m grid, and emits day_boundary_shifted canonical events and updates calendar links.
+   */
+  async replanDay(
+    params: {
+      date?: string;
+      timezone?: string;
+      currentTimestamp?: string;
+      declaredWake?: string;
+      declaredSleep?: string;
+      isHumanAuthorized?: boolean;
+      consecutiveDelayCount?: number;
+      forceWholeDay?: boolean;
+    },
+    idempotency?: IdempotencyContext
+  ): Promise<MutationResult<DynamicReplanProposal>> {
+    return this.withIdempotency('replan_day', idempotency, params, async () => {
+      const user = await this.db.selectFrom('users').select(['id', 'timezone']).executeTakeFirst();
+      const activeBlueprint = await BlueprintsRepository.getActiveBlueprint(this.db, user?.id);
+      const timezone = params?.timezone ?? activeBlueprint?.timezone ?? user?.timezone ?? 'Asia/Kolkata';
+      const refTime = params?.currentTimestamp ?? new Date().toISOString();
+      const date = params?.date ?? ProjectionEngine.extractDate(refTime, timezone);
+
+      const { startUtc, endUtc } = getUtcDayRange(date, timezone);
+
+      // 1. Fetch user canonical activity for today
+      const recentActivity = await CanonicalEventsRepository.getRecentActivity(this.db, {
+        startDate: startUtc,
+        endDate: endUtc,
+      });
+      const userEventsToday = recentActivity.map((e: CanonicalEvent) => ({
+        eventId: e.eventId,
+        eventType: e.eventType,
+        occurredAt: e.occurredAt,
+        payload: e.payload,
+      }));
+
+      // 2. Fetch existing calendar links
+      const calendarLinks = await EntitiesRepository.getCalendarLinks(this.db, startUtc, endUtc);
+      const existingCalendarBlocks = calendarLinks.map(l => ({
+        id: l.id,
+        calendarEventId: l.eventId,
+        containerId: l.entityId,
+        title: l.titleSnapshot ?? '',
+        startsAt: l.startsAt,
+        endsAt: l.endsAt,
+        isLocked: false,
+        statusSnapshot: l.statusSnapshot ?? undefined,
+      }));
+
+      // 3. Fetch completed study sessions today
+      const sessions = await this.db
+        .selectFrom('study_sessions')
+        .where('started_at', '>=', startUtc)
+        .where('started_at', '<=', endUtc)
+        .selectAll()
+        .execute();
+      const completedStudySessions = sessions.map(s => ({
+        durationMinutes: Math.floor(s.duration_seconds / 60),
+        startedAt: s.started_at,
+        endedAt: s.ended_at ?? s.started_at,
+      }));
+
+      const proposal = DynamicReplanningEngine.replan({
+        date,
+        timezone,
+        currentTime: refTime,
+        declaredWake: params.declaredWake,
+        declaredSleep: params.declaredSleep,
+        userEventsToday,
+        existingCalendarBlocks,
+        completedStudySessions,
+        isHumanAuthorized: params.isHumanAuthorized,
+        consecutiveDelayCount: params.consecutiveDelayCount,
+        forceWholeDay: params.forceWholeDay,
+      });
+
+      const now = new Date().toISOString();
+      const decisionId = generateId('dec');
+
+      // 1. Emit day_boundary_shifted canonical event if day boundary was altered
+      let boundaryEventId: string | undefined;
+      const isShifted =
+        Boolean(params.declaredWake) ||
+        Boolean(params.declaredSleep) ||
+        proposal.classifications.some(c => c !== 'NORMAL');
+
+      if (isShifted) {
+        const boundaryEvent = CanonicalEventEngine.createEvent({
+          eventType: 'day_boundary_shifted',
+          actor: {
+            type: params.isHumanAuthorized ? 'user' : 'agent',
+            id: params.isHumanAuthorized ? 'usr_operator' : 'gemini_spark',
+          },
+          source: { system: 'spark', interface: 'mcp' },
+          payload: {
+            wakeTime: proposal.dayState.actualWake,
+            sleepTime: proposal.dayState.targetSleep,
+            windDownStart: proposal.dayState.windDownStart,
+            mode: proposal.classifications,
+            reason: proposal.rationale,
+          },
+        });
+        await AtomicWriter.ingestAndProjectAtomic(this.d1, this.db, { event: boundaryEvent });
+        boundaryEventId = boundaryEvent.eventId;
+      }
+
+      // 2. Persist replanning decision
+      await EntitiesRepository.insertDecision(this.db, {
+        id: decisionId,
+        projectId: null,
+        title: `Dynamic Day Replan: ${proposal.classifications.join('/')} (${proposal.repairType})`,
+        context: proposal.rationale,
+        decision: JSON.stringify({
+          classifications: proposal.classifications,
+          repairType: proposal.repairType,
+          plannedDeepWorkMinutes: proposal.plannedDeepWorkMinutes,
+          scheduledCount: proposal.scheduledContainers.length,
+          evictedCount: proposal.evictedContainers.length,
+          scheduledContainers: proposal.scheduledContainers.map((c: ScheduledContainerBlock) => ({
+            containerId: c.containerId,
+            startsAt: c.startsAt,
+            endsAt: c.endsAt,
+            durationMinutes: c.durationMinutes,
+          })),
+          evictedContainers: proposal.evictedContainers,
+        }),
+        consequences: proposal.warnings.length > 0 ? proposal.warnings.join('; ') : 'Timetable replanned cleanly.',
+        createdAt: now,
+      });
+
+      // 3. For evicted containers: emit schedule_missed if previously planned or dropped
+      for (const evicted of proposal.evictedContainers) {
+        if (evicted.action === 'dropped') {
+          const matchingLink = calendarLinks.find(
+            l => l.entityId === evicted.containerId || l.titleSnapshot?.toLowerCase().includes(evicted.containerId)
+          );
+          const missedEvent = CanonicalEventEngine.createEvent({
+            eventType: 'schedule_missed',
+            actor: {
+              type: params.isHumanAuthorized ? 'user' : 'agent',
+              id: params.isHumanAuthorized ? 'usr_operator' : 'gemini_spark',
+            },
+            source: { system: 'spark', interface: 'mcp' },
+            payload: {
+              calendarEventId: matchingLink?.eventId ?? `evt_${evicted.containerId}_${date}`,
+              scheduledStart: matchingLink?.startsAt ?? now,
+              scheduledEnd: matchingLink?.endsAt ?? now,
+              reason: evicted.reason,
+            },
+          });
+          await AtomicWriter.ingestAndProjectAtomic(this.d1, this.db, { event: missedEvent });
+        }
+      }
+
+      // 4. Upsert scheduled containers to calendar_links
+      for (const sc of proposal.scheduledContainers) {
+        const existingLink = calendarLinks.find(
+          l => l.entityId === sc.containerId || (sc.calendarEventId && l.eventId === sc.calendarEventId)
+        );
+        const linkId = existingLink?.id ?? generateId('callink');
+        await EntitiesRepository.upsertCalendarLink(this.db, {
+          id: linkId,
+          provider: 'google_calendar',
+          calendarId: 'primary',
+          eventId: sc.calendarEventId ?? existingLink?.eventId ?? `evt_${sc.containerId}_${date}`,
+          entityType: 'study_session',
+          entityId: sc.containerId,
+          titleSnapshot: sc.name,
+          startsAt: sc.startsAt,
+          endsAt: sc.endsAt,
+          statusSnapshot: 'confirmed',
+          lastSyncedAt: now,
+          createdAt: existingLink?.createdAt ?? now,
+          updatedAt: now,
+        });
+      }
+
+      // 5. Update daily_states state_payload with dayState and Notion journal snapshot
+      const existingDaily = await ProjectionsRepository.getDailyStateByDate(this.db, date);
+      let existingPayload: Record<string, unknown> = {};
+      try {
+        if (existingDaily?.statePayload) {
+          existingPayload = JSON.parse(existingDaily.statePayload);
+        }
+      } catch {
+        // ignore malformed JSON
+      }
+
+      const updatedDaily: DailyState = {
+        id: existingDaily?.id ?? generateId('daily'),
+        date,
+        studyMinutes: existingDaily?.studyMinutes ?? 0,
+        completedChapters: existingDaily?.completedChapters ?? 0,
+        questionsAttempted: existingDaily?.questionsAttempted ?? 0,
+        questionsCorrect: existingDaily?.questionsCorrect ?? 0,
+        accuracy: existingDaily?.accuracy ?? 0.0,
+        missedSessions: (existingDaily?.missedSessions ?? 0) + proposal.evictedContainers.filter((e: EvictedContainerRecord) => e.action === 'dropped').length,
+        completedTasks: existingDaily?.completedTasks ?? 0,
+        pendingTasks: existingDaily?.pendingTasks ?? 0,
+        statePayload: JSON.stringify({
+          ...existingPayload,
+          dayState: proposal.dayState,
+          classifications: proposal.classifications,
+          notionJournalMarkdown: proposal.journalMarkdown,
+          lastReplanAt: now,
+        }),
+        updatedAt: now,
+      };
+      await executeD1Batch(this.d1, [
+        ProjectionsRepository.createUpsertDailyStateQuery(this.db, updatedDaily),
+      ]);
+
+      return {
+        success: true,
+        operation: 'replan_day',
+        eventId: boundaryEventId,
+        entityId: decisionId,
+        data: proposal,
       };
     });
   }

@@ -5,3 +5,5 @@ export * from './reconciliation';
 export * from './reliability-engine';
 export * from './personal-state-service';
 export * from './blueprint';
+export * from './dynamic-replanning';
+

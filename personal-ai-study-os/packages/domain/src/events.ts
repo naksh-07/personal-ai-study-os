@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { EvidenceTierSchema } from './entities';
+import { EvidenceTierSchema, DayClassificationSchema } from './entities';
 
 // ============================================================================
 // Canonical Event Envelope Primitives
@@ -158,6 +158,15 @@ export const ScheduleAdjustedPayloadSchema = z.object({
   newEnd: z.string().datetime(),
   reason: z.string().optional(),
 });
+
+export const DayBoundaryShiftedPayloadSchema = z.object({
+  wakeTime: z.string().datetime(),
+  sleepTime: z.string().datetime(),
+  windDownStart: z.string().datetime(),
+  mode: z.array(DayClassificationSchema),
+  reason: z.string().optional(),
+});
+
 
 // ============================================================================
 // 5. Task Events
@@ -402,6 +411,12 @@ export const ScheduleAdjustedEventSchema = BaseEventEnvelopeSchema.extend({
   payload: ScheduleAdjustedPayloadSchema,
 });
 
+export const DayBoundaryShiftedEventSchema = BaseEventEnvelopeSchema.extend({
+  eventType: z.literal('day_boundary_shifted'),
+  payload: DayBoundaryShiftedPayloadSchema,
+});
+
+
 export const TaskCreatedEventSchema = BaseEventEnvelopeSchema.extend({
   eventType: z.literal('task_created'),
   payload: TaskCreatedPayloadSchema,
@@ -532,6 +547,7 @@ export const CanonicalEventSchema = z.discriminatedUnion('eventType', [
   AssessmentCompletedEventSchema,
   ScheduleMissedEventSchema,
   ScheduleAdjustedEventSchema,
+  DayBoundaryShiftedEventSchema,
   TaskCreatedEventSchema,
   TaskCompletedEventSchema,
   TaskReopenedEventSchema,
@@ -570,6 +586,7 @@ export type QuestionsAttemptedEvent = z.infer<typeof QuestionsAttemptedEventSche
 export type AssessmentCompletedEvent = z.infer<typeof AssessmentCompletedEventSchema>;
 export type ScheduleMissedEvent = z.infer<typeof ScheduleMissedEventSchema>;
 export type ScheduleAdjustedEvent = z.infer<typeof ScheduleAdjustedEventSchema>;
+export type DayBoundaryShiftedEvent = z.infer<typeof DayBoundaryShiftedEventSchema>;
 export type TaskCreatedEvent = z.infer<typeof TaskCreatedEventSchema>;
 export type TaskCompletedEvent = z.infer<typeof TaskCompletedEventSchema>;
 export type TaskReopenedEvent = z.infer<typeof TaskReopenedEventSchema>;

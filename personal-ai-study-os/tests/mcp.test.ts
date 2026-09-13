@@ -232,10 +232,10 @@ describe('Slice 4: Remote MCP Server (Streamable HTTP 2026-07-28 & Semantic Tool
       expect(res.status).toBe(200);
       const json: any = await res.json();
       const tools = json.result.tools;
-      expect(tools.length).toBe(27);
+      expect(tools.length).toBe(29);
 
       const toolNames = tools.map((t: any) => t.name);
-      // 12 Read tools
+      // 13 Read tools
       expect(toolNames).toContain('get_today_state');
       expect(toolNames).toContain('get_study_state');
       expect(toolNames).toContain('get_subject_state');
@@ -243,13 +243,14 @@ describe('Slice 4: Remote MCP Server (Streamable HTTP 2026-07-28 & Semantic Tool
       expect(toolNames).toContain('get_recent_activity');
       expect(toolNames).toContain('get_pending_work');
       expect(toolNames).toContain('get_schedule_context');
+      expect(toolNames).toContain('get_dynamic_day_state');
       expect(toolNames).toContain('search_memory');
       expect(toolNames).toContain('get_project_state');
       expect(toolNames).toContain('get_sync_status');
       expect(toolNames).toContain('get_agent_state');
       expect(toolNames).toContain('get_source_state');
 
-      // 14 Write tools
+      // 15 Write tools
       expect(toolNames).toContain('record_event');
       expect(toolNames).toContain('record_study_session');
       expect(toolNames).toContain('update_progress');
@@ -257,6 +258,7 @@ describe('Slice 4: Remote MCP Server (Streamable HTTP 2026-07-28 & Semantic Tool
       expect(toolNames).toContain('record_research');
       expect(toolNames).toContain('record_decision');
       expect(toolNames).toContain('record_schedule_decision');
+      expect(toolNames).toContain('replan_day');
       expect(toolNames).toContain('mutate_memory_fact');
       expect(toolNames).toContain('link_task');
       expect(toolNames).toContain('link_calendar_event');
@@ -606,7 +608,7 @@ describe('Slice 4: Remote MCP Server (Streamable HTTP 2026-07-28 & Semantic Tool
 
       expect(msgRes1.status).toBe(200);
       const json1: any = await msgRes1.json();
-      expect(json1.result.tools.length).toBe(27);
+      expect(json1.result.tools.length).toBe(29);
 
       const msgRes2 = await app.request('/mcp/messages', {
         method: 'POST',
@@ -623,7 +625,7 @@ describe('Slice 4: Remote MCP Server (Streamable HTTP 2026-07-28 & Semantic Tool
 
       expect(msgRes2.status).toBe(200);
       const json2: any = await msgRes2.json();
-      expect(json2.result.tools.length).toBe(27);
+      expect(json2.result.tools.length).toBe(29);
     });
   });
 

@@ -156,6 +156,33 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     },
   },
   {
+    name: 'get_dynamic_day_state',
+    description: "Returns the authoritative dynamic Day-State profile for the day including actual/nominal wake/sleep, wind-down cutoff, day classification, and physical/cognitive focus capacity based on the epistemic hierarchy.",
+    scope: 'read',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: 'YYYY-MM-DD format date (optional, defaults to today)' },
+        timezone: { type: 'string', description: 'IANA timezone string (e.g. UTC, Asia/Kolkata)' },
+        currentTime: { type: 'string', description: 'Current ISO 8601 timestamp' },
+        current_time: { type: 'string' },
+        declaredWake: { type: 'string', description: 'Explicitly declared wake time (HH:MM or ISO 8601)' },
+        declared_wake: { type: 'string' },
+        declaredSleep: { type: 'string', description: 'Explicitly declared sleep time (HH:MM or ISO 8601)' },
+        declared_sleep: { type: 'string' },
+      },
+    },
+    handler: async (service, args) => {
+      return await service.resolveDayState({
+        date: args?.date,
+        timezone: args?.timezone,
+        currentTimestamp: args?.currentTime || args?.current_time,
+        declaredWake: args?.declaredWake || args?.declared_wake,
+        declaredSleep: args?.declaredSleep || args?.declared_sleep,
+      });
+    },
+  },
+  {
     name: 'search_memory',
     description: 'Semantic search across memory records and markdown notes.',
     scope: 'read',
@@ -830,6 +857,48 @@ export const MCP_TOOLS: McpToolDefinition[] = [
           title: args?.title,
           correlationId: args?.correlationId || args?.correlation_id,
           causationId: args?.causationId || args?.causation_id,
+        },
+        idempKey ? { key: idempKey, sourceSystem: 'spark' } : undefined
+      );
+    },
+  },
+  {
+    name: 'replan_day',
+    description: 'Dynamically replans the daily timetable according to the Dynamic Day Replanning Policy v1.0. Resolves wake/sleep shifts, evicts lower-priority containers (P8->P7->P5->P6) when capacity is compressed, enforces 270m cognitive ceiling and 120m freeze window, snaps to 15m grid, and records decisions, canonical events, calendar updates, and Notion journal.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: 'YYYY-MM-DD format date (optional, defaults to today)' },
+        timezone: { type: 'string', description: 'IANA timezone string (e.g. UTC, Asia/Kolkata)' },
+        currentTime: { type: 'string', description: 'Current ISO 8601 timestamp' },
+        current_time: { type: 'string' },
+        declaredWake: { type: 'string', description: 'Explicitly declared wake time (HH:MM or ISO 8601)' },
+        declared_wake: { type: 'string' },
+        declaredSleep: { type: 'string', description: 'Explicitly declared sleep time (HH:MM or ISO 8601)' },
+        declared_sleep: { type: 'string' },
+        isHumanAuthorized: { type: 'boolean', description: 'Whether the replan request is human-authorized (can edit within freeze window)' },
+        is_human_authorized: { type: 'boolean' },
+        consecutiveDelayCount: { type: 'number', description: 'Number of consecutive delays encountered today' },
+        consecutive_delay_count: { type: 'number' },
+        forceWholeDay: { type: 'boolean', description: 'Force full whole-day replan instead of local repair' },
+        force_whole_day: { type: 'boolean' },
+        idempotencyKey: { type: 'string', description: 'Unique client idempotency key to prevent duplicate mutations' },
+        idempotency_key: { type: 'string' },
+      },
+    },
+    handler: async (service, args) => {
+      const idempKey = args?.idempotency_key || args?.idempotencyKey;
+      return await service.replanDay(
+        {
+          date: args?.date,
+          timezone: args?.timezone,
+          currentTimestamp: args?.currentTime || args?.current_time,
+          declaredWake: args?.declaredWake || args?.declared_wake,
+          declaredSleep: args?.declaredSleep || args?.declared_sleep,
+          isHumanAuthorized: args?.isHumanAuthorized ?? args?.is_human_authorized ?? false,
+          consecutiveDelayCount: args?.consecutiveDelayCount ?? args?.consecutive_delay_count ?? 0,
+          forceWholeDay: args?.forceWholeDay ?? args?.force_whole_day ?? false,
         },
         idempKey ? { key: idempKey, sourceSystem: 'spark' } : undefined
       );
