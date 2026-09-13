@@ -31,6 +31,7 @@ All authoritative specifications, baseline architectures, and audits are maintai
 ```text
 docs/
 ├── architecture/
+│   ├── FINAL-SCHEDULING-ACTIVATION.md         # Final activated scheduling architecture & triggers
 │   ├── PERSONAL_AI_STUDY_OS_baseline.md       # Foundational architectural baseline
 │   └── engineering_blueprint.md               # 155-section technical engineering blueprint
 ├── audits/
@@ -57,6 +58,7 @@ docs/
 
 | Document | Version | Status | Role |
 | :--- | :--- | :--- | :--- |
+| [`FINAL-SCHEDULING-ACTIVATION.md`](./docs/architecture/FINAL-SCHEDULING-ACTIVATION.md) | **v1.2.3** | **ACTIVE AUTHORITATIVE** | Final scheduling activation: Spark morning scheduler, Antigravity nightly normalizer, dynamic replanning triggers, exact prompts, verified paths, and ownership boundaries. |
 | [`Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.3.md`](./docs/specifications/Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.3.md) | **v1.2.3** | **ACTIVE AUTHORITATIVE** | Complete production specification governing schema (24 tables), transactional outbox, 120s processing lease, single-increment attempt_count semantics, attempt-preserving CAS recovery, crash loop termination, deterministic Google Tasks lost-ack expanding window, provider idempotency, Streamable HTTP MCP, and CI/CD promotion. |
 | [`Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.2.md`](./docs/specifications/archive/Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.2.md) | v1.2.2 | Superseded | Historical pre-build gate correction document. Preserved for auditability. |
 | [`Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.1.md`](./docs/specifications/archive/Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.1.md) | v1.2.1 | Superseded | Historical pre-build gate correction document. Preserved for auditability. |

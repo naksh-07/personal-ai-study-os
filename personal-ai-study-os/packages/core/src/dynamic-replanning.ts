@@ -174,7 +174,6 @@ export class DayStateResolver {
    */
   static resolveDayState(input: ResolveDayStateInput): DayStateProfile {
     const timezone = input.timezone ?? 'Asia/Kolkata';
-    const currentTime = input.currentTime ?? new Date().toISOString();
     const date = input.date ?? input.currentTime?.slice(0, 10) ?? new Date().toISOString().slice(0, 10);
 
     // 1. Resolve actualWake
@@ -204,6 +203,8 @@ export class DayStateResolver {
         }
       }
     }
+
+    const currentTime = input.currentTime ?? actualWake;
 
     // 2. Resolve targetSleep & windDownStart
     let targetSleep: string;
