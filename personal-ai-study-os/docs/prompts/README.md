@@ -17,6 +17,8 @@ Gemini Spark operates as the tactical scheduling client for the Personal AI Stud
 | :--- | :--- | :--- |
 | [`Tactical skill/`](./Tactical%20skill/) | `SKILL.md`<br>`SPARK-TACTICAL-SCHEDULER-v1.0.md`<br>`SPARK_TACTICAL_SCHEDULER_SKILL.md` | **Tactical Daily Scheduler**: Morning study scheduling, slot allocation, calendar mutation within strict boundaries. |
 | [`Dynamic skill/`](./Dynamic%20skill/) | `SKILL.md`<br>`SPARK_DYNAMIC_REPLANNER_SKILL.md` | **Dynamic Day Replanner**: Disruption recovery, late wake-ups, early sleep declarations, capacity compaction via `personal-study-os:replan_day`. |
+| [`Emergency ops skill/`](./Emergency%20ops%20skill/) | `SKILL.md`<br>`SPARK_EMERGENCY_OPS_SKILL.md` | **Emergency Operations**: Read-only diagnostic inspection of PSS health, outbox/DLQ queue reliability, and Google Calendar drift when Antigravity is offline. |
+| [`Emergency normalizer skill/`](./Emergency%20normalizer%20skill/) | `SKILL.md`<br>`SPARK_EMERGENCY_NORMALIZER_SKILL.md` | **Emergency Normalizer**: On-demand assisted nightly session reconciliation via PSS MCP with mandatory human confirmation and strict human reflection protection. |
 
 ---
 
