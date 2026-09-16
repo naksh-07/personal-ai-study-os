@@ -64,6 +64,7 @@ import {
   DayStateProfile,
   DayClassification,
   DailyState,
+  WorkloadResolution,
 } from '@personal-os/domain';
 import { CanonicalEventEngine, CreateCanonicalEventInput } from './event-engine';
 import { AtomicWriter } from './atomic-writer';

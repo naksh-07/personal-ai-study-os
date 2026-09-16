@@ -142,7 +142,7 @@ export interface TaskLinksTable {
   provider: string;
   tasklist_id: string;
   task_id: string;
-  entity_type: 'chapter' | 'project';
+  entity_type: 'subject' | 'chapter' | 'topic' | 'project';
   entity_id: string;
   title_snapshot: string | null;
   status_snapshot: 'needsAction' | 'completed' | null;

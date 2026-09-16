@@ -350,7 +350,7 @@ export type SourceMapping = z.infer<typeof SourceMappingSchema>;
 // 4. TASKS & CALENDAR EXTERNAL COORDINATION DOMAIN
 // ============================================================================
 
-export const TaskLinkEntityTypeSchema = z.enum(['chapter', 'project']);
+export const TaskLinkEntityTypeSchema = z.enum(['subject', 'chapter', 'topic', 'project']);
 export type TaskLinkEntityType = z.infer<typeof TaskLinkEntityTypeSchema>;
 
 export const TaskLinkStatusSnapshotSchema = z.enum(['needsAction', 'completed']).nullable().optional();
