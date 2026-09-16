@@ -11,6 +11,7 @@ import { requireAuth } from '../middleware/auth';
 import { UnauthorizedError, generateId } from '@personal-os/domain';
 import { AppContext } from '../types';
 import { wrapJobInQueueEnvelope } from '../queue/outbox-dispatcher';
+import { NotionAdapter } from '@personal-os/adapters';
 
 export const adminRoutes = new Hono<AppContext>();
 
