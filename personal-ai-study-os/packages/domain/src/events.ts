@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { EvidenceTierSchema, DayClassificationSchema } from './entities';
+import { EvidenceTierSchema, DayClassificationSchema, WorkloadResolutionSchema } from './entities';
 
 // ============================================================================
 // Canonical Event Envelope Primitives
@@ -66,13 +66,13 @@ export function deriveAccuracy(questionsCorrect: number, questionsAttempted: num
 // ============================================================================
 
 export const StudyStartedPayloadSchema = z.object({
-  chapterId: z.string().startsWith('chap_'),
+  chapterId: z.string().startsWith('chap_').nullable().optional(),
   subjectId: z.string().startsWith('subj_').optional(),
   scheduledDurationMinutes: z.number().int().min(1).optional(),
 });
 
 export const StudyCompletedPayloadSchema = z.object({
-  chapterId: z.string().startsWith('chap_'),
+  chapterId: z.string().startsWith('chap_').nullable().optional(),
   subjectId: z.string().startsWith('subj_').optional(),
   durationSeconds: z.number().int().min(0),
   activityType: z.enum(['revision', 'pyq_practice', 'lecture', 'deep_work']).default('deep_work'),
@@ -80,8 +80,11 @@ export const StudyCompletedPayloadSchema = z.object({
 
 export const StudySessionRecordedPayloadSchema = z.object({
   sessionId: z.string().startsWith('sess_'),
-  chapterId: z.string().startsWith('chap_'),
+  chapterId: z.string().startsWith('chap_').nullable().optional(),
   subjectId: z.string().startsWith('subj_'),
+  topicId: z.string().nullable().optional(),
+  taskId: z.string().nullable().optional(),
+  resolution: WorkloadResolutionSchema.optional().default('chapter'),
   startedAt: z.string().datetime(),
   endedAt: z.string().datetime(),
   durationSeconds: z.number().int().min(0),

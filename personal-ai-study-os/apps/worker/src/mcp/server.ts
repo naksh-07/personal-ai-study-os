@@ -308,8 +308,15 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        chapterId: { type: 'string', description: 'Target chapter ID' },
+        subjectId: { type: 'string', description: 'Target subject ID (required if chapterId omitted)' },
+        subject_id: { type: 'string' },
+        chapterId: { type: 'string', description: 'Target chapter ID (optional for Level 1 subject study)' },
         chapter_id: { type: 'string' },
+        topicId: { type: 'string', description: 'Target topic ID (optional for Level 3/4)' },
+        topic_id: { type: 'string' },
+        taskId: { type: 'string', description: 'Target task ID (optional for Level 4)' },
+        task_id: { type: 'string' },
+        resolution: { type: 'string', enum: ['subject', 'chapter', 'topic', 'task'] },
         durationSeconds: { type: 'number', description: 'Duration in seconds' },
         duration_seconds: { type: 'number' },
         activityType: { type: 'string', enum: ['revision', 'pyq_practice', 'lecture', 'deep_work'] },
@@ -325,14 +332,14 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       const activityType = args?.activityType || args?.activity_type || 'deep_work';
       const idempKey = args?.idempotency_key || args?.idempotencyKey;
 
-      if (!chapterId) {
-        throw new ValidationError("Parameter 'chapterId' is required for record_study_session");
-      }
-
       let subjectId = args?.subjectId || args?.subject_id;
-      if (!subjectId) {
+      if (!subjectId && chapterId) {
         const chapter = await service.getChapterState(chapterId);
         subjectId = chapter.chapter.subjectId;
+      }
+
+      if (!subjectId) {
+        throw new ValidationError("Parameter 'subjectId' (or 'chapterId') is required for record_study_session");
       }
 
       const now = new Date();
@@ -341,8 +348,11 @@ export const MCP_TOOLS: McpToolDefinition[] = [
 
       return await service.recordStudySession(
         {
-          chapterId,
+          chapterId: chapterId ?? undefined,
           subjectId,
+          topicId: args?.topicId || args?.topic_id,
+          taskId: args?.taskId || args?.task_id,
+          resolution: args?.resolution,
           durationSeconds,
           activityType,
           startedAt,
@@ -815,6 +825,9 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         task_id: { type: 'string' },
         chapterId: { type: 'string', description: 'Canonical chapter ID (chap_...) being scheduled (optional)' },
         chapter_id: { type: 'string' },
+        subjectId: { type: 'string', description: 'Canonical subject ID (subj_...) being scheduled (optional)' },
+        subject_id: { type: 'string' },
+        resolution: { type: 'string', enum: ['subject', 'chapter', 'topic', 'task'], description: 'Workload resolution level (optional)' },
         projectId: { type: 'string', description: 'Canonical project ID (proj_...) if decision relates to a project (optional)' },
         project_id: { type: 'string' },
         startTime: { type: 'string', description: 'ISO 8601 start datetime for the scheduled window' },
@@ -849,6 +862,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
           calendarId: args?.calendarId || args?.calendar_id || 'primary',
           taskId: args?.taskId || args?.task_id,
           chapterId: args?.chapterId || args?.chapter_id,
+          subjectId: args?.subjectId || args?.subject_id,
+          resolution: args?.resolution,
           projectId: args?.projectId || args?.project_id,
           startTime: args?.startTime || args?.start_time,
           endTime: args?.endTime || args?.end_time,

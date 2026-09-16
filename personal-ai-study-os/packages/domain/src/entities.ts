@@ -206,13 +206,35 @@ export const ScheduleBlueprintConfigSchema = z.object({
 });
 export type ScheduleBlueprintConfig = z.infer<typeof ScheduleBlueprintConfigSchema>;
 
+export const WorkloadResolutionSchema = z.enum(['subject', 'chapter', 'topic', 'task']);
+export type WorkloadResolution = z.infer<typeof WorkloadResolutionSchema>;
+
+export const ResolvedWorkloadSchema = z.object({
+  resolution: WorkloadResolutionSchema,
+  subjectId: z.string().startsWith('subj_'),
+  subjectName: z.string().min(1),
+  chapterId: z.string().startsWith('chap_').optional(),
+  chapterName: z.string().optional(),
+  topicId: z.string().optional(),
+  topicName: z.string().optional(),
+  taskId: z.string().optional(),
+  taskTitle: z.string().optional(),
+  status: z.string().default('not_started'),
+  progressPercent: z.number().min(0.0).max(1.0).default(0.0),
+  displayName: z.string().min(1),
+});
+export type ResolvedWorkload = z.infer<typeof ResolvedWorkloadSchema>;
+
 export const StudySessionStatusSchema = z.enum(['completed', 'interrupted']);
 export type StudySessionStatus = z.infer<typeof StudySessionStatusSchema>;
 
 export const StudySessionSchema = z.object({
   id: z.string().startsWith('sess_'),
   subjectId: z.string().startsWith('subj_'),
-  chapterId: z.string().startsWith('chap_'),
+  chapterId: z.string().startsWith('chap_').nullable().optional(),
+  topicId: z.string().nullable().optional(),
+  taskId: z.string().nullable().optional(),
+  resolution: WorkloadResolutionSchema.default('chapter'),
   startedAt: z.string().datetime(),
   endedAt: z.string().datetime(),
   durationSeconds: z.number().int().min(0),
@@ -631,12 +653,19 @@ export interface StudyState {
     summary: string;
   }>;
   pendingWorkload?: Array<{
-    chapterId: string;
+    resolution?: WorkloadResolution;
+    chapterId?: string;
     subjectId: string;
     subjectName?: string;
     name: string;
     status: string;
     progressPercent: number;
+    displayName?: string;
+    chapterName?: string;
+    topicId?: string;
+    topicName?: string;
+    taskId?: string;
+    taskTitle?: string;
   }>;
   upcomingTasks?: Array<{
     taskLinkId: string;
@@ -751,6 +780,11 @@ export interface PendingWorkItem {
   status: string;
   entityType?: string;
   entityId?: string;
+  resolution?: WorkloadResolution;
+  subjectId?: string;
+  chapterId?: string;
+  topicId?: string;
+  taskId?: string;
   priority?: string;
   due?: string;
   lastError?: string;
@@ -876,7 +910,10 @@ export interface SyncStatusState {
 // Mutation Input Schemas & Types
 export const RecordStudySessionInputSchema = z.object({
   subjectId: z.string().startsWith('subj_'),
-  chapterId: z.string().startsWith('chap_'),
+  chapterId: z.string().startsWith('chap_').optional(),
+  topicId: z.string().optional(),
+  taskId: z.string().optional(),
+  resolution: WorkloadResolutionSchema.optional(),
   startedAt: z.string().datetime(),
   endedAt: z.string().datetime(),
   durationSeconds: z.number().int().min(0),
@@ -995,6 +1032,8 @@ export const RecordScheduleDecisionInputSchema = z.object({
   calendarId: z.string().default('primary'),
   taskId: z.string().optional(),
   chapterId: z.string().startsWith('chap_').optional(),
+  subjectId: z.string().startsWith('subj_').optional(),
+  resolution: WorkloadResolutionSchema.optional(),
   projectId: z.string().startsWith('proj_').optional(),
   startTime: z.string().datetime().optional(),
   endTime: z.string().datetime().optional(),

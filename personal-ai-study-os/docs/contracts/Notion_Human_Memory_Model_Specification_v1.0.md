@@ -69,11 +69,15 @@ To prevent database bloat and cognitive overload, Notion memory is structured in
 * **Purpose:** Summarizes completed study sessions, daily accomplishments, and qualitative study notes.
 * **Granularity:** One page per completed study session or consolidated daily study block.
 * **Fields:**
-  * `Session Title` (Title): Machine suggested, human editable (`[Subject] Chapter Name - Session`)
+  * `Session Title` (Title): Machine suggested, human editable reflecting resolved workload level:
+    * Level 1: `Physics — 90 min`
+    * Level 2: `Physics / Current Electricity — 90 min`
+    * Level 3: `Physics / Current Electricity / Kirchhoff's Laws — 90 min`
+    * Level 4: `Physics / Current Electricity / Kirchhoff's Laws / 50 PYQs`
   * `OS_Entity_ID` (Text, Unique): `sess_...` canonical identifier (`MACHINE_OWNED`)
   * `Date & Time` (Date): Session start and end timestamp (`MACHINE_OWNED`)
   * `Subject` (Relation -> Curriculum): Linked subject (`MACHINE_OWNED`)
-  * `Chapter` (Relation -> Curriculum): Linked chapter (`MACHINE_OWNED`)
+  * `Chapter` (Relation -> Curriculum): Linked chapter (Optional; present for Level 2+, omitted for Level 1 subject study) (`MACHINE_OWNED`)
   * `Duration (Minutes)` (Number): Net study duration (`MACHINE_OWNED`)
   * `Activity Type` (Select): `deep_work`, `pyq_practice`, `revision`, `lecture` (`MACHINE_OWNED`)
   * `Questions Attempted` (Number): Optional practice count (`MACHINE_OWNED`)

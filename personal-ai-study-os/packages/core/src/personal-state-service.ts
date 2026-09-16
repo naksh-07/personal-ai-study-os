@@ -78,6 +78,7 @@ import {
   ScheduledContainerBlock,
   EvictedContainerRecord,
 } from './dynamic-replanning';
+import { WorkloadResolver } from './workload-resolver';
 
 export interface IdempotencyContext {
   key?: string;
@@ -268,22 +269,6 @@ export class PersonalStateService {
       summary: `${e.eventType} by ${e.actor.type}:${e.actor.id} via ${e.source.system}`,
     }));
 
-    // Pending workload for scheduling (in_progress or not_started chapters)
-    const pendingWorkload = allChapters
-      .filter(c => c.status !== 'completed')
-      .map(c => {
-        const subj = allSubjects.find(s => s.id === c.subjectId);
-        const prog = allProgress.find(p => p.chapterId === c.id);
-        return {
-          chapterId: c.id,
-          subjectId: c.subjectId,
-          subjectName: subj?.name,
-          name: c.name,
-          status: c.status,
-          progressPercent: prog?.progressPercent ?? c.progress ?? 0.0,
-        };
-      });
-
     // Upcoming external tasks (Google Tasks needsAction)
     const taskLinks = await EntitiesRepository.getTaskLinks(this.db);
     const upcomingTasks = taskLinks
@@ -297,6 +282,30 @@ export class PersonalStateService {
         entityId: t.entityId,
         status: t.statusSnapshot ?? 'needsAction',
       }));
+
+    // Adaptive Workload Resolution: Level 0–4
+    const resolvedWorkloads = WorkloadResolver.resolveWorkloads({
+      subjects: allSubjects,
+      chapters: allChapters,
+      progress: allProgress,
+      taskLinks,
+    });
+
+    const pendingWorkload = resolvedWorkloads.map(rw => ({
+      resolution: rw.resolution,
+      subjectId: rw.subjectId,
+      subjectName: rw.subjectName,
+      chapterId: rw.chapterId,
+      chapterName: rw.chapterName,
+      name: rw.chapterName ?? rw.subjectName,
+      displayName: rw.displayName,
+      topicId: rw.topicId,
+      topicName: rw.topicName,
+      taskId: rw.taskId,
+      taskTitle: rw.taskTitle,
+      status: rw.status,
+      progressPercent: rw.progressPercent,
+    }));
 
     // Target study windows (Google Calendar schedule blocks for target date)
     const user = await this.db.selectFrom('users').select(['id', 'timezone']).executeTakeFirst();
@@ -552,25 +561,65 @@ export class PersonalStateService {
    * Unified pending-work read surface distinguishing study work, external tasks, and sync/reliability work.
    */
   async getPendingWork(): Promise<PendingWorkState> {
+    const allSubjects = await EntitiesRepository.getAllSubjects(this.db);
     const allChapters = await EntitiesRepository.getAllChapters(this.db);
     const allProgress = await ProjectionsRepository.getAllStudyProgress(this.db);
-
-    const studyWork = allChapters
-      .filter(c => c.status === 'in_progress' || (c.progress > 0 && c.progress < 1.0))
-      .map(c => {
-        const prog = allProgress.find(p => p.chapterId === c.id);
-        return {
-          id: c.id,
-          category: 'study' as const,
-          title: `Study Chapter: ${c.name}`,
-          status: c.status,
-          entityType: 'chapter',
-          entityId: c.id,
-          priority: 'normal',
-        };
-      });
-
     const taskLinks = await EntitiesRepository.getTaskLinks(this.db);
+
+    const inProgressChapters = allChapters.filter(
+      c => c.status === 'in_progress' || (c.progress > 0 && c.progress < 1.0)
+    );
+
+    const studyWork: Array<{
+      id: string;
+      category: 'study';
+      title: string;
+      status: string;
+      entityType: string;
+      entityId: string;
+      resolution?: WorkloadResolution;
+      subjectId?: string;
+      chapterId?: string;
+      topicId?: string;
+      taskId?: string;
+      priority: 'normal';
+    }> = [];
+
+    // 1. Add in-progress chapters
+    for (const c of inProgressChapters) {
+      studyWork.push({
+        id: c.id,
+        category: 'study',
+        title: `Study Chapter: ${c.name}`,
+        status: c.status,
+        entityType: c.parentId ? 'topic' : 'chapter',
+        entityId: c.id,
+        resolution: c.parentId ? 'topic' : 'chapter',
+        subjectId: c.subjectId,
+        chapterId: c.id,
+        priority: 'normal',
+      });
+    }
+
+    // 2. For active subjects with ZERO chapters (Level 1), add subject-level study work
+    const activeSubjects = allSubjects.filter(s => s.status === 'active');
+    for (const s of activeSubjects) {
+      const subjectChapters = allChapters.filter(c => c.subjectId === s.id);
+      if (subjectChapters.length === 0) {
+        studyWork.push({
+          id: s.id,
+          category: 'study',
+          title: `Study Subject: ${s.name}`,
+          status: 'active',
+          entityType: 'subject',
+          entityId: s.id,
+          resolution: 'subject',
+          subjectId: s.id,
+          priority: 'normal',
+        });
+      }
+    }
+
     const externalTasks = taskLinks
       .filter(t => t.statusSnapshot === 'needsAction' || !t.statusSnapshot)
       .map(t => ({
@@ -1229,16 +1278,24 @@ export class PersonalStateService {
     const input = RecordStudySessionInputSchema.parse(rawInput);
 
     return this.withIdempotency('record_study_session', idempotency, input, async () => {
-      // Validate chapter exists and belongs to subject
-      const chapter = await EntitiesRepository.getChapter(this.db, input.chapterId);
-      if (!chapter) {
-        throw new NotFoundError('CHAPTER_NOT_FOUND', `Chapter '${input.chapterId}' not found.`);
+      // Validate subject exists
+      const subject = await EntitiesRepository.getSubject(this.db, input.subjectId);
+      if (!subject) {
+        throw new NotFoundError('SUBJECT_NOT_FOUND', `Subject '${input.subjectId}' not found.`);
       }
-      if (chapter.subjectId !== input.subjectId) {
-        throw new NotFoundError(
-          'SUBJECT_NOT_FOUND',
-          `Chapter '${input.chapterId}' belongs to subject '${chapter.subjectId}', not '${input.subjectId}'.`
-        );
+
+      // If chapterId is provided, validate chapter exists and belongs to subject
+      if (input.chapterId) {
+        const chapter = await EntitiesRepository.getChapter(this.db, input.chapterId);
+        if (!chapter) {
+          throw new NotFoundError('CHAPTER_NOT_FOUND', `Chapter '${input.chapterId}' not found.`);
+        }
+        if (chapter.subjectId !== input.subjectId) {
+          throw new NotFoundError(
+            'SUBJECT_NOT_FOUND',
+            `Chapter '${input.chapterId}' belongs to subject '${chapter.subjectId}', not '${input.subjectId}'.`
+          );
+        }
       }
 
       if (input.questionsCorrect > input.questionsAttempted) {
@@ -1248,13 +1305,23 @@ export class PersonalStateService {
       const sessionId = generateId('sess');
       const now = new Date().toISOString();
 
+      const resolution = WorkloadResolver.deriveSessionResolution({
+        resolution: input.resolution,
+        taskId: input.taskId,
+        topicId: input.topicId,
+        chapterId: input.chapterId,
+      });
+
       // Persist to study_sessions table
       await this.db
         .insertInto('study_sessions')
         .values({
           id: sessionId,
           subject_id: input.subjectId,
-          chapter_id: input.chapterId,
+          chapter_id: input.chapterId ?? null,
+          topic_id: input.topicId ?? null,
+          task_id: input.taskId ?? null,
+          resolution,
           started_at: input.startedAt,
           ended_at: input.endedAt,
           duration_seconds: input.durationSeconds,
@@ -1274,8 +1341,11 @@ export class PersonalStateService {
         source: { system: 'chatgpt', interface: 'rest' },
         payload: {
           sessionId,
-          chapterId: input.chapterId,
+          chapterId: input.chapterId ?? null,
           subjectId: input.subjectId,
+          topicId: input.topicId ?? null,
+          taskId: input.taskId ?? null,
+          resolution,
           startedAt: input.startedAt,
           endedAt: input.endedAt,
           durationSeconds: input.durationSeconds,
@@ -1724,6 +1794,14 @@ export class PersonalStateService {
     const input = RecordScheduleDecisionInputSchema.parse(rawInput);
 
     return this.withIdempotency('record_schedule_decision', idempotency, input, async () => {
+      // Validate subject if provided
+      if (input.subjectId) {
+        const subject = await EntitiesRepository.getSubject(this.db, input.subjectId);
+        if (!subject) {
+          throw new NotFoundError('SUBJECT_NOT_FOUND', `Subject '${input.subjectId}' not found.`);
+        }
+      }
+
       // Validate chapter if provided
       if (input.chapterId) {
         const chapter = await EntitiesRepository.getChapter(this.db, input.chapterId);
@@ -1762,13 +1840,16 @@ export class PersonalStateService {
       // 2. If calendarEventId and timing provided, upsert calendar_links
       if (input.calendarEventId && input.startTime && input.endTime) {
         calendarLinkId = generateId('callink');
+        const entityType = input.taskId ? 'task' : 'study_session';
+        const entityId = input.taskId ?? input.chapterId ?? input.subjectId ?? input.calendarEventId;
+
         await EntitiesRepository.upsertCalendarLink(this.db, {
           id: calendarLinkId,
           provider: 'google_calendar',
           calendarId: input.calendarId,
           eventId: input.calendarEventId,
-          entityType: input.taskId ? 'task' : 'study_session',
-          entityId: input.taskId ?? input.chapterId ?? input.calendarEventId,
+          entityType,
+          entityId,
           titleSnapshot: input.title ?? input.decision,
           startsAt: input.startTime,
           endsAt: input.endTime,
@@ -2175,6 +2256,7 @@ export class PersonalStateService {
       if (isShifted) {
         const boundaryEvent = CanonicalEventEngine.createEvent({
           eventType: 'day_boundary_shifted',
+          occurredAt: proposal.dayState.actualWake,
           actor: {
             type: params.isHumanAuthorized ? 'user' : 'agent',
             id: params.isHumanAuthorized ? 'usr_operator' : 'gemini_spark',

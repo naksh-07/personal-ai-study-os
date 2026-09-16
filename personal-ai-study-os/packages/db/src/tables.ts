@@ -54,7 +54,10 @@ export interface CanonicalEventsTable {
 export interface StudySessionsTable {
   id: string; // sess_...
   subject_id: string;
-  chapter_id: string;
+  chapter_id: string | null;
+  topic_id: string | null;
+  task_id: string | null;
+  resolution: 'subject' | 'chapter' | 'topic' | 'task';
   started_at: string;
   ended_at: string;
   duration_seconds: number;

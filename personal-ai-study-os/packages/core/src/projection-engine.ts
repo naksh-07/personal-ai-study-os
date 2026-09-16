@@ -123,28 +123,30 @@ export class ProjectionEngine {
         };
         const minutes = Math.floor(payload.durationSeconds / 60);
 
-        const existingProgress = await ProjectionsRepository.getStudyProgressByChapter(
-          db,
-          payload.chapterId
-        );
-        const updatedProgress: StudyProgress = {
-          id: existingProgress?.id ?? generateId('prog'),
-          subjectId: payload.subjectId,
-          chapterId: payload.chapterId,
-          status:
-            existingProgress?.status === 'NOT_STARTED'
-              ? 'IN_PROGRESS'
-              : (existingProgress?.status ?? 'IN_PROGRESS'),
-          progressPercent: existingProgress?.progressPercent ?? 0.0,
-          confidence: existingProgress?.confidence ?? 0.0,
-          lastStudiedAt: event.occurredAt,
-          lastCompletedAt: existingProgress?.lastCompletedAt,
-          questionsAttempted: existingProgress?.questionsAttempted ?? 0,
-          questionsCorrect: existingProgress?.questionsCorrect ?? 0,
-          accuracy: existingProgress?.accuracy ?? 0.0,
-          updatedAt: event.recordedAt,
-        };
-        queries.push(ProjectionsRepository.createUpsertStudyProgressQuery(db, updatedProgress));
+        if (payload.chapterId) {
+          const existingProgress = await ProjectionsRepository.getStudyProgressByChapter(
+            db,
+            payload.chapterId
+          );
+          const updatedProgress: StudyProgress = {
+            id: existingProgress?.id ?? generateId('prog'),
+            subjectId: payload.subjectId,
+            chapterId: payload.chapterId,
+            status:
+              existingProgress?.status === 'NOT_STARTED'
+                ? 'IN_PROGRESS'
+                : (existingProgress?.status ?? 'IN_PROGRESS'),
+            progressPercent: existingProgress?.progressPercent ?? 0.0,
+            confidence: existingProgress?.confidence ?? 0.0,
+            lastStudiedAt: event.occurredAt,
+            lastCompletedAt: existingProgress?.lastCompletedAt,
+            questionsAttempted: existingProgress?.questionsAttempted ?? 0,
+            questionsCorrect: existingProgress?.questionsCorrect ?? 0,
+            accuracy: existingProgress?.accuracy ?? 0.0,
+            updatedAt: event.recordedAt,
+          };
+          queries.push(ProjectionsRepository.createUpsertStudyProgressQuery(db, updatedProgress));
+        }
 
         const existingDaily = await ProjectionsRepository.getDailyStateByDate(db, eventDate);
         const updatedDaily: DailyState = {
@@ -173,42 +175,44 @@ export class ProjectionEngine {
           questionsCorrect: number;
         };
 
-        // 1. Update chapter study_progress
-        const existingProgress = await ProjectionsRepository.getStudyProgressByChapter(
-          db,
-          payload.chapterId
-        );
-        const resolvedSubjectId = await this.resolveSubjectId(
-          db,
-          payload.chapterId,
-          existingProgress?.subjectId,
-          payload.subjectId
-        );
-        const newChapterAttempted =
-          (existingProgress?.questionsAttempted ?? 0) + payload.questionsAttempted;
-        const newChapterCorrect =
-          (existingProgress?.questionsCorrect ?? 0) + payload.questionsCorrect;
-        const newChapterAccuracy = deriveAccuracy(newChapterCorrect, newChapterAttempted);
+        // 1. Update chapter study_progress if chapterId present
+        if (payload.chapterId) {
+          const existingProgress = await ProjectionsRepository.getStudyProgressByChapter(
+            db,
+            payload.chapterId
+          );
+          const resolvedSubjectId = await this.resolveSubjectId(
+            db,
+            payload.chapterId,
+            existingProgress?.subjectId,
+            payload.subjectId
+          );
+          const newChapterAttempted =
+            (existingProgress?.questionsAttempted ?? 0) + payload.questionsAttempted;
+          const newChapterCorrect =
+            (existingProgress?.questionsCorrect ?? 0) + payload.questionsCorrect;
+          const newChapterAccuracy = deriveAccuracy(newChapterCorrect, newChapterAttempted);
 
-        if (resolvedSubjectId) {
-          const updatedProgress: StudyProgress = {
-            id: existingProgress?.id ?? generateId('prog'),
-            subjectId: resolvedSubjectId,
-            chapterId: payload.chapterId,
-            status:
-              existingProgress?.status === 'NOT_STARTED'
-                ? 'IN_PROGRESS'
-                : (existingProgress?.status ?? 'IN_PROGRESS'),
-            progressPercent: existingProgress?.progressPercent ?? 0.0,
-            confidence: existingProgress?.confidence ?? 0.0,
-            lastStudiedAt: event.occurredAt,
-            lastCompletedAt: existingProgress?.lastCompletedAt,
-            questionsAttempted: newChapterAttempted,
-            questionsCorrect: newChapterCorrect,
-            accuracy: newChapterAccuracy,
-            updatedAt: event.recordedAt,
-          };
-          queries.push(ProjectionsRepository.createUpsertStudyProgressQuery(db, updatedProgress));
+          if (resolvedSubjectId) {
+            const updatedProgress: StudyProgress = {
+              id: existingProgress?.id ?? generateId('prog'),
+              subjectId: resolvedSubjectId,
+              chapterId: payload.chapterId,
+              status:
+                existingProgress?.status === 'NOT_STARTED'
+                  ? 'IN_PROGRESS'
+                  : (existingProgress?.status ?? 'IN_PROGRESS'),
+              progressPercent: existingProgress?.progressPercent ?? 0.0,
+              confidence: existingProgress?.confidence ?? 0.0,
+              lastStudiedAt: event.occurredAt,
+              lastCompletedAt: existingProgress?.lastCompletedAt,
+              questionsAttempted: newChapterAttempted,
+              questionsCorrect: newChapterCorrect,
+              accuracy: newChapterAccuracy,
+              updatedAt: event.recordedAt,
+            };
+            queries.push(ProjectionsRepository.createUpsertStudyProgressQuery(db, updatedProgress));
+          }
         }
 
         // 2. Update daily_states

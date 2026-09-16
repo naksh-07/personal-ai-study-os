@@ -37,6 +37,13 @@ export function createTestDatabase(): TestContext {
     sqlite.exec(migration3Sql);
   }
 
+  // Load migration SQL from apps/worker/migrations/0004_adaptive_workload_resolution.sql
+  const migration4Path = path.resolve(__dirname, '../apps/worker/migrations/0004_adaptive_workload_resolution.sql');
+  if (fs.existsSync(migration4Path)) {
+    const migration4Sql = fs.readFileSync(migration4Path, 'utf8');
+    sqlite.exec(migration4Sql);
+  }
+
   const d1 = createD1FromBetterSqlite3(sqlite);
   const db = createKyselyD1(d1);
 

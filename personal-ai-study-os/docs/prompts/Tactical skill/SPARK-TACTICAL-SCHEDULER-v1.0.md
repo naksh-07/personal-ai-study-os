@@ -164,38 +164,40 @@ The returned state is the source of truth for the current scheduling decision.
 
 ### Step 2: Understand the workload
 
-Use Google Tasks to determine the current actionable study workload.
+Inspect `pendingWorkload` from `personal-study-os:get_study_state` and Google Tasks to determine actionable study workload across the approved hierarchy:
 
-Tasks are the source of WHAT.
+```text
+LEVEL 4: Specific Task     -> [Study OS] Physics / Current Electricity / Kirchhoff's Laws / 50 PYQs
+LEVEL 3: Subject + Topic   -> [Study OS] Physics / Current Electricity / Kirchhoff's Laws
+LEVEL 2: Subject + Chapter -> [Study OS] Physics / Current Electricity
+LEVEL 1: Subject only      -> [Study OS] Physics | [Study OS] Maths | [Study OS] Reasoning
+LEVEL 0: No study intent   -> Do not schedule study
+```
 
-Respect the user's existing task structure.
+Precedence Rule:
+> **LEVEL 4 > LEVEL 3 > LEVEL 2 > LEVEL 1 > LEVEL 0**
+> Schedule using the highest-resolution information that actually exists.
+> Known active study subjects are actionable workload when no more specific workload is available.
+> Detailed curriculum is an optional refinement, never a prerequisite for scheduling.
+> Missing detail reduces resolution rather than eliminating workload.
 
 Do NOT invent:
-
 - chapters
 - topics
-- pending work
-- priorities
+- tasks
 - weaknesses
 - strengths
-- retention scores
-- exam urgency
-- estimated difficulty
 
-unless such information is explicitly available from the connected systems or PSS state.
+#### Empty workload rule (Level 0)
 
-#### Empty workload rule
+The Empty Workload Rule applies ONLY when no study intent exists at ANY supported resolution (Level 0: no subjects, no chapters, no topics, no study tasks).
+It must NOT trigger merely because chapters or Google Tasks are absent when active subjects exist.
 
-If there is no usable study workload:
-
-DO NOT invent a subject or chapter.
-
-Instead:
-
-1. report that no actionable study workload is currently available
-2. avoid creating fabricated study tasks
-3. preserve the existing schedule
-4. surface the missing-input condition clearly
+If Level 0 (no study workload at any level):
+1. Report that no actionable study workload is currently available.
+2. Avoid creating study calendar blocks or fabricated tasks.
+3. Allow other non-study commitments and routines to schedule normally.
+4. Preserve the existing schedule.
 
 ---
 
@@ -309,9 +311,15 @@ Google Calendar owns WHEN.
 
 Study OS Calendar events must be clearly identifiable as Study OS-managed events.
 
-Prefer the naming convention:
+Prefer the naming convention using the resolved workload displayName:
 
-`[Study OS] <Subject> - <Topic> (<Block Type>)`
+`[Study OS] <Resolved Workload Display Name>`
+
+Examples:
+- Level 1 (Subject): `[Study OS] Physics`
+- Level 2 (Chapter): `[Study OS] Physics / Current Electricity`
+- Level 3 (Topic): `[Study OS] Physics / Current Electricity / Kirchhoff's Laws`
+- Level 4 (Task): `[Study OS] Physics / Current Electricity / Kirchhoff's Laws / 50 PYQs`
 
 Only mutate Calendar events that are legitimately owned by Study OS.
 

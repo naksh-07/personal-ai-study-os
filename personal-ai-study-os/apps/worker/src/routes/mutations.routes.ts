@@ -39,8 +39,18 @@ mutationsRoutes.post('/study/sessions', async (c) => {
   const correlationId = c.get('correlationId');
 
   const service = new PersonalStateService(c.env.DB, createKyselyD1(c.env.DB));
+  let subjectId = body.subjectId;
+  if (!subjectId && body.chapterId) {
+    try {
+      const chapter = await service.getChapterState(body.chapterId);
+      subjectId = chapter.chapter.subjectId;
+    } catch {
+      // Allow service.recordStudySession to handle not found or validation
+    }
+  }
+
   const result = await service.recordStudySession(
-    { ...body, correlationId: body.correlationId || correlationId },
+    { ...body, subjectId, correlationId: body.correlationId || correlationId },
     { key: idempotencyKey, sourceSystem: 'rest', requestPayload: body }
   );
 
