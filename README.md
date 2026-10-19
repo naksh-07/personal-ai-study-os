@@ -69,7 +69,7 @@ docs/
 | Document | Version | Status | Role |
 | :--- | :--- | :--- | :--- |
 | [`NOTION-WORKSPACE-OPERATING-PROTOCOL-v1.0.md`](./docs/governance/NOTION-WORKSPACE-OPERATING-PROTOCOL-v1.0.md) | **v1.0** | **ACTIVE AUTHORITATIVE** | Universal Notion workspace operating protocol governing human memory, anti-slop, and multi-agent coordination across all AI clients. |
-| [`FINAL-SCHEDULING-ACTIVATION.md`](./docs/architecture/FINAL-SCHEDULING-ACTIVATION.md) | **v1.2.3** | **ACTIVE AUTHORITATIVE** | Final scheduling activation: Spark morning scheduler, Antigravity nightly normalizer, dynamic replanning triggers, exact prompts, verified paths, and ownership boundaries. |
+| [`FINAL-SCHEDULING-ACTIVATION.md`](./docs/architecture/FINAL-SCHEDULING-ACTIVATION.md) | **v1.2.3** | **ACTIVE AUTHORITATIVE** | Final scheduling activation: Unified Antigravity CLI on Termux (Android ARM64), Gemini 3.8 Flash agents (`personal-os-morning-scheduler`, `personal-os-dynamic-replanner`, `personal-os-nightly-normalizer`), headless scripts, and Zero-Idle Lazy MCP Supervisor. |
 | [`Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.3.md`](./docs/specifications/Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.3.md) | **v1.2.3** | **ACTIVE AUTHORITATIVE** | Complete production specification governing schema (24 tables), transactional outbox, 120s processing lease, single-increment attempt_count semantics, attempt-preserving CAS recovery, crash loop termination, deterministic Google Tasks lost-ack expanding window, provider idempotency, Streamable HTTP MCP, and CI/CD promotion. |
 | [`Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.2.md`](./docs/specifications/archive/Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.2.md) | v1.2.2 | Superseded | Historical pre-build gate correction document. Preserved for auditability. |
 | [`Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.1.md`](./docs/specifications/archive/Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.1.md) | v1.2.1 | Superseded | Historical pre-build gate correction document. Preserved for auditability. |
@@ -91,23 +91,26 @@ docs/
   - **Google Calendar:** Owns schedule blocks and calendar slots (**WHEN**).
   - **Notion:** Human-facing long-term study memory and rich session notes. Governed workspace-wide by [`docs/governance/NOTION-WORKSPACE-OPERATING-PROTOCOL-v1.0.md`](./docs/governance/NOTION-WORKSPACE-OPERATING-PROTOCOL-v1.0.md).
   - **Cloudflare D1:** Authoritative machine truth, event log, and idempotency ledger.
-  - **Antigravity:** Technical execution agent authorized for backend engineering, deployment, and operational tasks.
-  - **Gemini Spark & ChatGPT:** Intermittent LLM intelligence for planning and scheduling (human-configured custom instructions; no continuous sync, no chat history stored).
+  - **Antigravity CLI (`agy`) on Termux:** Unified autonomous execution engine on mobile ARM64. Directly executes tactical scheduling, disruption recovery, and nightly normalization.
+  - **Gemini 3.8 Flash:** Cognitive intelligence engine powering all autonomous agent decisions. Zero external web prompt dependency.
+  - **Universal Zero-Idle Lazy MCP Supervisor:** Process governor eliminating background Node.js memory drain across all MCP servers (saving ~750MB RAM).
 
 ---
 
-## 5. Human Configuration Contract
+## 5. Mobile Runtime & Headless Execution Contract
 
-The technical infrastructure, database, queues, bridge, and worker endpoints are fully deployed and verified. The remaining external UI integrations require manual human configuration via their respective web interfaces:
+The technical infrastructure, database, queues, bridge, and mobile agents are fully deployed and operational natively on Termux (Android):
 
-1. **Notion Integration:**
-   - Create the target study database in your Notion workspace.
-   - Configure integration token and database ID if Notion syncing is enabled.
-2. **Gemini Spark (Deep Thinker / Daily Planner):**
-   - Configure Custom Instructions in the Gemini web interface using the prompt specifications in `docs/specifications/Personal_AI_Study_OS_Production_Implementation_Specification_v1.2.3.md`.
-   - Access the remote MCP server (`/mcp` endpoint) or REST API (`/v1/*`) via OAuth 2.1 / Bearer token.
-3. **ChatGPT (Intermittent Assistant):**
-   - Configure custom GPT actions or workflow prompts using the OpenAPI / MCP schema.
-   - Operates strictly on an on-demand, event-driven basis (no chat history or chain-of-thought stored in D1).
+1. **Tactical Morning Scheduling (07:00 AM IST):**
+   - Triggered autonomously via `~/bin/study-os-morning-scheduler.sh` (or interactive `agy`).
+   - Powered by `personal-os-morning-scheduler` agent & skill using `personal-study-os` MCP state.
+2. **Dynamic Day Recovery (On-Demand Disruption):**
+   - Triggered interactively via `personal-os-dynamic-replanner` whenever schedule disruptions occur.
+   - PSS Dynamic Replanning Engine evicts lower priorities while defending core P2 Maths and P3 Reasoning.
+3. **Quiescent Nightly Normalization (12:00 AM IST):**
+   - Triggered autonomously via `~/bin/study-os-nightly-normalizer.sh`.
+   - Powered by `personal-os-nightly-normalizer` reconciling Notion reflections with Cloudflare D1.
 4. **Google Apps Script Bridge:**
    - Deployed and securely bound via HMAC-SHA256 signature verification for Google Tasks and Google Calendar synchronization.
+5. **Mobile Obsidian Mirroring:**
+   - All generated schedules, audit ledgers, and walkthrough reports automatically mirror to `/storage/emulated/0/Documents/Termux/Reports/` for comfortable mobile reading.

@@ -9,49 +9,52 @@
 
 ## 1. Final Scheduling Architecture
 
-The Personal AI Study OS scheduling lifecycle operates across three strictly partitioned execution paths:
+The Personal AI Study OS scheduling lifecycle operates across three strictly partitioned execution paths, unified natively under **Antigravity CLI (`agy`) on Termux (Android ARM64)** powered by **Gemini 3.8 Flash**:
 
 ### 1.1 Normal Daily Scheduling
-**Spark**  
-→ `spark-study-scheduler`  
+**Antigravity CLI (Termux Job / Native)**  
+→ `personal-os-morning-scheduler` (Agent & Skill)  
 → **Personal State Service (PSS)**  
 → **Google Tasks** / **Google Calendar**  
 → **Notion Daily Study Journal**
 
 - **Execution Flow:**
-  1. Triggered daily at morning study start.
-  2. Invokes the `spark-study-scheduler` skill.
+  1. Triggered daily at morning study start (07:00 AM IST) via `~/bin/study-os-morning-scheduler.sh` (or interactive `agy`).
+  2. Spawns the autonomous `personal-os-morning-scheduler` agent executing the `personal-os-morning-scheduler` skill.
   3. Queries PSS via MCP (`get_study_state`) for authoritative day classification, cognitive capacity, timetable anchors, and syllabus workload.
   4. Allocates focus containers on Google Calendar (WHEN) and aligns pending tasks on Google Tasks (WHAT).
-  5. Records the tactical schedule in the Notion Daily Study Journal under `## 🤖 Morning Tactical Schedule`.
+  5. Records the tactical schedule in the Notion Daily Study Journal under `## 🤖 Morning Tactical Schedule` and commits decisions to PSS (`record_schedule_decision`).
+  6. Automatically mirrors tactical schedule summary to `/storage/emulated/0/Documents/Termux/Reports/` for mobile Obsidian review.
 
 ### 1.2 Dynamic / Disruption Replanning
-**Spark**  
-→ `spark-dynamic-replanner`  
+**Antigravity CLI (Interactive On-Demand)**  
+→ `personal-os-dynamic-replanner` (Agent & Skill)  
 → **PSS Dynamic Replanning Engine**  
 → **Google Calendar**  
 → **Notion**
 
 - **Execution Flow:**
   1. Triggered on-demand when the user explicitly declares a disruption (late wake, early sleep, unexpected delay).
-  2. Invokes the `spark-dynamic-replanner` skill.
+  2. Invokes the `personal-os-dynamic-replanner` agent executing the `personal-os-dynamic-replanner` skill.
   3. Passes explicit user declarations to the PSS `replan_day` MCP tool.
-  4. PSS Dynamic Replanning Engine calculates capacity adjustments and priority evictions; Spark applies the returned schedule changes to Google Calendar (maximum 5 mutations).
+  4. PSS Dynamic Replanning Engine calculates capacity adjustments and priority evictions; agent applies the returned schedule changes to Google Calendar (maximum 5 mutations).
   5. Refreshes the Notion Daily Study Journal schedule section with dynamic status notes.
+  6. Mirrors replan summary to mobile Obsidian vault.
 
 ### 1.3 Nightly Normalization
-**Antigravity**  
-→ `personal-os-nightly-normalizer`  
+**Antigravity CLI (Termux Quiescent Job)**  
+→ `personal-os-nightly-normalizer` (Agent & Skill)  
 → `personal-os-nightly-normalization`  
 → **Personal State Service (PSS)**  
 → **Cloudflare D1 Canonical State**
 
 - **Execution Flow:**
-  1. Triggered daily during the system quiescence window (00:00–02:00 IST).
+  1. Triggered daily during the system quiescence window (00:00–02:00 IST) via `~/bin/study-os-nightly-normalizer.sh`.
   2. Deploys the autonomous `personal-os-nightly-normalizer` agent executing the `personal-os-nightly-normalization` skill.
   3. Reads human qualitative reflections from Notion Daily Study Journal and extracts machine telemetry from PSS.
   4. Commits canonical normalized study session to Cloudflare D1 via PSS MCP first (`record_study_session`).
   5. Patches machine-owned Notion properties (`[🤖]`) second, strictly preserving all human reflection properties (`[✍️]`) and body narrative notes.
+  6. Reclaims background memory via the Universal Zero-Idle Lazy MCP Supervisor.
 
 ### 1.4 Frozen Ownership Model
 
@@ -62,8 +65,8 @@ The Personal AI Study OS scheduling lifecycle operates across three strictly par
 | **Personal State Service (PSS)** | **SCHEDULING GOVERNANCE** | Scheduling policy, Dynamic Day classification, capacity constraints, and Dynamic Replanning Engine authority. |
 | **Cloudflare D1** | **CANONICAL MACHINE TRUTH** | Append-only event store, idempotency records, relational projections (27 tables), immutable history. |
 | **Notion** | **HUMAN-FACING WORKSPACE** | Qualitative reflections, human journal entries, and long-term memory notes (`Daily Study Journal`). |
-| **Gemini Spark** | **TACTICAL SCHEDULING** | Tactical daily schedule construction and disruption execution client. |
-| **Antigravity** | **TECHNICAL EXECUTION** | Engineering operations, calendar drift diagnosis, and quiescent nightly reconciliation. |
+| **Antigravity CLI (`agy`)** | **AUTONOMOUS EXECUTION** | Unified mobile tactical scheduling, dynamic replanning, nightly normalization, and zero-idle MCP orchestration on Termux. |
+| **Gemini 3.8 Flash** | **LLM REASONING ENGINE** | High-efficiency, zero-depreciation cognitive reasoning model powering all mobile OS agents. |
 
 ---
 
@@ -74,6 +77,7 @@ The Personal AI Study OS scheduling lifecycle operates across three strictly par
 - **Approximate Time:** 12:00 AM (quiescence window: 00:00–02:00 IST)
 - **Agent:** `personal-os-nightly-normalizer`
 - **Skill:** `personal-os-nightly-normalization`
+- **Headless Trigger Script:** `~/bin/study-os-nightly-normalizer.sh`
 
 ### Exact Configured Prompt
 ```text
@@ -84,33 +88,31 @@ Run the complete nightly normalization workflow for today's Personal AI Study OS
 Report only the final result and any actual failure.
 ```
 
-*(Note: The prompt above is preserved verbatim without alteration or paraphrasing.)*
-
 ---
 
-## 3. Spark Morning Scheduled Task
+## 3. Antigravity Morning Scheduled Task
 
 - **Task Name:** `Personal OS Morning Scheduler`
 - **Frequency:** Daily
 - **Approximate Time:** 7:00 AM IST
-- **Skill:** `spark-study-scheduler`
+- **Agent:** `personal-os-morning-scheduler`
+- **Skill:** `personal-os-morning-scheduler`
+- **Headless Trigger Script:** `~/bin/study-os-morning-scheduler.sh`
 
 ### Exact Configured Prompt
 ```text
-Use the spark-study-scheduler skill.
+Use the personal-os-morning-scheduler agent and skill.
 
 Create today's tactical study schedule using the current Personal AI Study OS state. Follow the skill exactly, use PSS as the scheduling authority, coordinate Google Tasks and Calendar, and update the Notion Morning Tactical Schedule. Make only necessary schedule changes and do not invent any workload or study data.
 
 Report the final schedule briefly and mention any actual failure.
 ```
 
-*(Note: The prompt above is preserved verbatim without alteration or paraphrasing.)*
-
 ---
 
-## 4. Spark Dynamic Replanner (On-Demand / Emergency Recovery)
+## 4. Antigravity Dynamic Replanner (On-Demand Disruption Recovery)
 
-The `spark-dynamic-replanner` is an **on-demand/emergency capability**, strictly separated from the normal morning scheduler. It is **NOT** a scheduled recurring task.
+The `personal-os-dynamic-replanner` is an **on-demand/emergency capability**, strictly separated from the normal morning scheduler. It is **NOT** a scheduled recurring task.
 
 ### 4.1 Use Cases & Triggers
 - **Late Wake:** User wakes up later than nominal timetable start.
@@ -127,24 +129,25 @@ The `spark-dynamic-replanner` is an **on-demand/emergency capability**, strictly
 
 ### 4.3 Intended Invocation Pattern
 ```text
-Use the spark-dynamic-replanner skill to replan today's schedule based on my declared disruption.
+Use the personal-os-dynamic-replanner agent and skill to replan today's schedule based on my declared disruption.
 ```
-
-*(Note: This is an example interactive on-demand user prompt, not a recurring scheduled task.)*
 
 ---
 
-## 5. Skills / Agent Locations
+## 5. Skills / Agent Locations & Mobile Runtime Registry
 
-The physical repository paths, documentation copies, and global runtime mirrors have been verified on disk:
+The physical paths and mobile runtime mirrors on Termux (Android ARM64):
 
-| Component Identifier | Component Type | Repository Working Path | Repository Documentation Path | Global Runtime Mirror Path |
-| :--- | :--- | :--- | :--- | :--- |
-| `personal-os-operations` | Skill | `.agents/skills/personal-os-operations/SKILL.md` | `personal-ai-study-os/docs/prompts/Operations skill/SKILL.md` | `C:\Users\Suraj\.gemini\config\skills\personal-os-operations\SKILL.md` |
-| `personal-os-nightly-normalization` | Skill | `.agents/skills/personal-os-nightly-normalization/SKILL.md` | `personal-ai-study-os/docs/prompts/Nightly normalization skill/SKILL.md` | `C:\Users\Suraj\.gemini\config\skills\personal-os-nightly-normalization\SKILL.md` |
-| `personal-os-nightly-normalizer` | Agent | `.agents/agents/personal-os-nightly-normalizer/agent.md` | `personal-ai-study-os/docs/prompts/Nightly normalizer agent/agent.md` | `C:\Users\Suraj\.gemini\config\agents\personal-os-nightly-normalizer\agent.md` |
-| `spark-study-scheduler` | Skill | N/A (External AI Client) | `personal-ai-study-os/docs/prompts/Tactical skill/SKILL.md` | Gemini Spark Custom Instructions / Google Routine |
-| `spark-dynamic-replanner` | Skill | N/A (External AI Client) | `personal-ai-study-os/docs/prompts/Dynamic skill/SKILL.md` | Gemini Spark Custom Instructions / Prompt Registry |
+| Component Identifier | Component Type | Global Runtime Path | Role & Model |
+| :--- | :--- | :--- | :--- |
+| `personal-os-morning-scheduler` | Agent | `~/.gemini/config/agents/personal-os-morning-scheduler/agent.md` | Tactical Morning Planning (Gemini 3.8 Flash) |
+| `personal-os-morning-scheduler` | Skill | `~/.gemini/config/skills/personal-os-morning-scheduler/SKILL.md` | Tactical Study Sizing & Notion Logging |
+| `personal-os-dynamic-replanner` | Agent | `~/.gemini/config/agents/personal-os-dynamic-replanner/agent.md` | Disruption Recovery Agent (Gemini 3.8 Flash) |
+| `personal-os-dynamic-replanner` | Skill | `~/.gemini/config/skills/personal-os-dynamic-replanner/SKILL.md` | PSS Replan Execution & Priority Defense |
+| `personal-os-nightly-normalizer` | Agent | `~/.gemini/config/agents/personal-os-nightly-normalizer/agent.md` | Quiescent Reconciler (Gemini 3.8 Flash) |
+| `personal-os-nightly-normalization`| Skill | `~/.gemini/config/skills/personal-os-nightly-normalization/SKILL.md`| Canonical D1 Commit + Notion Reconciliation |
+| `personal-os-operations` | Skill | `~/.gemini/config/skills/personal-os-operations/SKILL.md` | System Diagnostics & Drift Analysis |
+| `lazy_mcp_supervisor` | Runtime Script | `~/.gemini/config/scripts/lazy_mcp_supervisor.py` | Universal Zero-Idle Auto-Harvester (Reclaims ~750MB RAM) |
 
 ---
 
